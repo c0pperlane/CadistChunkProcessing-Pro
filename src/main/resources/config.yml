@@ -1,0 +1,143 @@
+# ============================================================================
+#  CadistChunkProcessing Pro
+# ----------------------------------------------------------------------------
+#  Model: "solidify, never void". Hidden caves and buried ores are replaced
+#  with a homogeneous ghost solid (stone/deepslate/netherrack/end_stone) — we
+#  NEVER write air where a solid was, so the client can never see void on
+#  mining, chunk borders, or in freecam. Bandwidth is saved by collapsing each
+#  chunk section's palette (one block-state per section ≈ a few bytes on the
+#  wire), which matches or beats the old "void" approach byte-for-byte.
+# ============================================================================
+
+# Active mode. One of: BALANCED | MAX_SAVINGS | GENEROUS
+#   BALANCED     — big savings, caves open smoothly well before you arrive.
+#   MAX_SAVINGS  — highest savings (home-server upload), caves open closer in.
+#   GENEROUS     — smoothest visuals, lower savings (builder-friendly).
+mode: BALANCED
+
+# Master toggles (also switchable live in the GUI / via commands).
+cave-hiding: true   # hide caves below the surface
+ore-hiding: true    # anti-xray: camouflage ores you cannot legitimately see
+
+# Anti-xray ore visibility:
+#   false (default) = show only ores you could legitimately see — surface-exposed
+#                     veins (any distance) PLUS ores in the cave you're actually
+#                     standing in (within ore-reveal-radius). Buried ore, distant
+#                     caves, and dig-down-and-peek-through-walls stay hidden.
+#   true            = paranoid: hide EVERY ore everywhere; you only get ore by
+#                     mining the disguised stone. Strongest anti-xray.
+hide-all-ores: false
+
+# Anti-xray for block entities (chests, spawners, trial spawners, furnaces,
+# barrels, brewing stands, beacons, end portals…). A chunk packet carries a
+# block-entity LIST separate from the block array, so even with ores/caves
+# camouflaged a cheat client can read it to locate every buried chest and
+# spawner. When true, block entities below the surface are stripped from
+# hidden (SHELL/DEEP) chunks — they return automatically as you approach and
+# the chunk becomes REAL. Surface structures (village chests, etc.) are kept.
+hide-block-entities: true
+
+# Blocks around the player within which exposed ores stay visible (= "the cave
+# you're in"). Only used when hide-all-ores is false.
+ore-reveal-radius: 16
+
+# Extra blocks to treat as ore (anti-xray), matched by name substring against
+# the block id. Useful for modded/datapack ores. Examples below (commented):
+extra-ores: []
+#  - "ruby_ore"
+#  - "platinum_ore"
+
+# Performance: cache the processed result of far (DEEP) chunks and reuse it for
+# every player / re-send instead of re-running the engine each time. DEEP chunks
+# are fully solid rock far below the surface, so a cached entry is never visible
+# until the chunk re-sends as a near tier (which bypasses the cache) — i.e. it
+# can never show stale geometry to anyone who could reach it.
+#   true  = efficient (recommended for production)
+#   false = "live": reprocess every chunk on every send (watch processing happen;
+#           useful for testing/verifying behavior). Also live-toggle in the GUI.
+chunk-cache: true
+
+# Also flatten the per-section BIOME palette in fully-hidden (single-block)
+# sections to that section's own existing biome. Invisible (the section is solid
+# and unseen) and lets network compression crush the biome bytes too. Reuses an
+# existing biome id, so it can never produce an invalid biome.
+collapse-biomes: true
+
+# Vertical culling. The REAL bubble around you is normally sent as full columns
+# (surface to bedrock) so digging is always correct — but that means the deep
+# caves far BELOW you (e.g. while you stand on the surface) are sent in full for
+# no reason. With this on, in the REAL bubble everything more than
+# `vertical-margin` blocks below you is solidified, and re-revealed as you
+# descend (every `vertical-resend-blocks` of downward movement re-sends the
+# bubble). The margin + resend stay ahead of normal digging/falling speed, so
+# you never reach un-revealed solid; worst case under extreme fast descent is a
+# brief re-send catch-up, never void.
+#   true  = big extra savings in the REAL tier (recommended)
+#   false = send full columns (old behavior)
+vertical-culling: true
+
+# Blocks kept real below your feet before vertical culling kicks in. Larger =
+# safer for fast descents, smaller = more savings. (min 8)
+vertical-margin: 48
+
+# Re-send the bubble after this many blocks of vertical movement, so the cull
+# line follows you down/up. Smaller = more responsive (more re-sends). (min 4)
+vertical-resend-blocks: 16
+
+# Worlds where processing is active. ["*"] = all worlds.
+enabled-worlds:
+  - "*"
+
+# How many queued chunk re-sends are flushed per tick, per player, when a
+# player crosses a chunk boundary (the "reveal" mechanism). Higher = caves
+# catch up faster when moving quickly; lower = gentler on the network.
+refresh-per-tick: 6
+
+# Seconds after joining during which ALL chunks are sent raw (bypasses the
+# join chunk-flood). 0 = process immediately on join.
+join-raw-seconds: 0
+
+# ----------------------------------------------------------------------------
+# Per-mode parameters. All are live-tunable in the GUI.
+#   real-radius          chunks around the player sent fully real (so digging
+#                        is always correct). Must be >= 2.
+#   cave-render-distance chunks within which cave openings still reveal inward
+#                        (entrance-shell-depth). Beyond it, everything below
+#                        the surface is solidified for maximum savings.
+#   entrance-shell-depth blocks of cave revealed inward from a real opening,
+#                        so visible cave mouths / holes are never false-culled.
+#   homogenize-below     real margin (blocks) kept under each column's surface
+#                        before the DEEP tier collapses everything beneath it to
+#                        the ghost block. Smaller = more savings, more uniform
+#                        distant cliff faces. (Per-column, so ravines/cave mouths
+#                        never block a chunk's collapse.)
+#   rock-collapse        DEEP tier merges all sub-surface rock (granite/tuff/…)
+#                        into the ghost block, giving single-palette sections.
+#   reveal-hysteresis    chunks; a revealed chunk is only re-hidden once it is
+#                        this far beyond real-radius (prevents resend thrash).
+# ----------------------------------------------------------------------------
+modes:
+  BALANCED:
+    real-radius: 4
+    cave-render-distance: 10
+    entrance-shell-depth: 6
+    homogenize-below: 8
+    rock-collapse: true
+    reveal-hysteresis: 2
+  MAX_SAVINGS:
+    real-radius: 2
+    cave-render-distance: 2   # = real-radius -> no shell ring; everything past the bubble is fully collapsed
+    entrance-shell-depth: 0
+    homogenize-below: 2
+    rock-collapse: true
+    reveal-hysteresis: 2
+  GENEROUS:
+    real-radius: 6
+    cave-render-distance: 14
+    entrance-shell-depth: 10
+    homogenize-below: 24
+    rock-collapse: false
+    reveal-hysteresis: 2
+
+# Verbose logging + per-chunk diagnostics. Leave off in production.
+debug: false

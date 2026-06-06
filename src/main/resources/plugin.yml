@@ -1,0 +1,23 @@
+name: CadistChunkProcessingPro
+version: '${project.version}'
+main: net.cadistenmc.cadistchunkprocessing.CadistChunkProcessingPro
+api-version: '1.21'
+folia-supported: true
+depend: [packetevents]
+author: cadistenmc
+description: Solidify-don't-void chunk processing — bandwidth saving + anti-xray cave/ore hiding.
+
+commands:
+  cadistchunk:
+    description: CadistChunkProcessing Pro admin commands
+    usage: /cadistchunk <gui|stats|bar|mode|reload>
+    permission: cadistchunkprocessing.admin
+    aliases: [cadist, ccp]
+
+permissions:
+  cadistchunkprocessing.admin:
+    description: Access to the admin GUI and commands.
+    default: op
+  cadistchunkprocessing.bypass:
+    description: Player receives raw, unprocessed chunks (no hiding).
+    default: false

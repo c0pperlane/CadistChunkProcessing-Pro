@@ -1,0 +1,51 @@
+﻿# Compiled jars everywhere (reference artifacts, pre-built releases)
+*.jar
+
+# Keep the compiled plugin artifact in target/
+!target/*.jar
+
+# Maven intermediate build output
+/target/classes/
+/target/maven-archiver/
+/target/maven-status/
+/target/generated-sources/
+/target/generated-test-sources/
+/target/test-classes/
+/target/surefire-reports/
+
+# Bundled Maven installations
+apache-maven-*/
+maven.tar.gz
+maven.tgz
+maven.zip
+
+# Backup / release archives
+*.zip
+*.tar.gz
+*.tgz
+
+# Java compiler temp args
+*.args
+
+# Decompiled / reference sources (CadistChunkProcessing legacy)
+BandwidthSaver-0.7.0-source/
+BandwidthSaver-2.1.0-leaf-source/
+BandwidthSaver-2.1.0-source/
+BandwidthSaver-source/
+BandwidthSaverV2/
+cfr-*.jar
+libs/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.class
+
+# OS
+Desktop\ -\ Shortcut.lnk
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
