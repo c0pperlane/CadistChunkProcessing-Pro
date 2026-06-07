@@ -72,6 +72,22 @@ ore-reveal-radius: 16
 #   enabling. Off by default.
 reachability-ores: false
 
+# Reachability CAVE hiding (builds on the same scanner as reachability-ores).
+# Normally the real bubble around you is sent fully real, so freecam/x-ray can
+# see every cave near you. With this on, in that bubble every cave-air cell you
+# can NOT reach is solidified — only the cave you're actually standing in stays
+# real. Result: a cave/base you aren't inside reads as solid rock even up close,
+# and freecam can't see it (it's never sent). If anti-base-finder is also on, the
+# enclosed man-made blocks of a base you can't reach are scrubbed too, so its
+# walls don't outline it on x-ray.
+#   Digging stays correct in the cave you're in; mining a wall into a hidden
+#   pocket reveals it within a moment (a re-scan, then a re-send) - never void,
+#   just a brief catch-up. A sealed base (behind a closed door/trapdoor/wall) is
+#   fully hidden; a cave that's genuinely open and walk-into-able from where a
+#   viewer stands is real terrain and can't be hidden.
+#   Recommended together with cave-hiding + anti-base-finder. Off by default.
+reachability-caves: false
+
 # Extra blocks to treat as ore (anti-xray), matched by name substring against
 # the block id. Useful for modded/datapack ores. Examples below (commented):
 extra-ores: []

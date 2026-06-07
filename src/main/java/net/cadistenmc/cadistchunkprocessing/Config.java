@@ -23,6 +23,7 @@ public final class Config {
     private volatile boolean hideBlockEntities = true;
     private volatile boolean antiBaseFinder = false;
     private volatile boolean reachabilityOres = false;
+    private volatile boolean reachabilityCaves = false;
     private volatile boolean chunkCache = true;
     private volatile boolean collapseBiomes = true;
     private volatile boolean verticalCulling = true;
@@ -52,6 +53,7 @@ public final class Config {
         this.hideBlockEntities = c.getBoolean("hide-block-entities", true);
         this.antiBaseFinder = c.getBoolean("anti-base-finder", false);
         this.reachabilityOres = c.getBoolean("reachability-ores", false);
+        this.reachabilityCaves = c.getBoolean("reachability-caves", false);
         this.chunkCache = c.getBoolean("chunk-cache", true);
         this.collapseBiomes = c.getBoolean("collapse-biomes", true);
         this.verticalCulling = c.getBoolean("vertical-culling", true);
@@ -110,6 +112,9 @@ public final class Config {
     public boolean hideBlockEntities() { return hideBlockEntities; }
     public boolean antiBaseFinder() { return antiBaseFinder; }
     public boolean reachabilityOres() { return reachabilityOres; }
+    public boolean reachabilityCaves() { return reachabilityCaves; }
+    /** Any reachability feature active -> the scanner needs to run. */
+    public boolean reachabilityActive() { return reachabilityOres || reachabilityCaves; }
     public boolean chunkCache() { return chunkCache; }
     public boolean collapseBiomes() { return collapseBiomes; }
     public boolean verticalCulling() { return verticalCulling; }
@@ -134,6 +139,7 @@ public final class Config {
     public void setHideBlockEntities(boolean v) { set("hide-block-entities", v); }
     public void setAntiBaseFinder(boolean v) { set("anti-base-finder", v); }
     public void setReachabilityOres(boolean v) { set("reachability-ores", v); }
+    public void setReachabilityCaves(boolean v) { set("reachability-caves", v); }
     public void setChunkCache(boolean v) { set("chunk-cache", v); }
     public void setVerticalCulling(boolean v) { set("vertical-culling", v); }
     public void setVerticalMargin(int v) { set("vertical-margin", v); }

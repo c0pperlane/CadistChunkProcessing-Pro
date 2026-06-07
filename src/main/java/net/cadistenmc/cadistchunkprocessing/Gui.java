@@ -36,7 +36,7 @@ public final class Gui implements Listener {
     private static final TextColor SUB = TextColor.color(0xA6ADC8);
 
     private static final int CAVE = 10, ORE = 12, WORLD = 14, STATS = 16;
-    private static final int BLOCK_ENT = 11, CACHE = 15, ANTI_BASE = 13, REACH = 9;
+    private static final int BLOCK_ENT = 11, CACHE = 15, ANTI_BASE = 13, REACH = 9, REACH_CAVES = 17;
     private static final int REAL_R = 19, RENDER = 21, SHELL = 23, HOMO = 25;
     private static final int ROCK = 29, MODE = 31, HIDE_ALL = 28, ORE_RADIUS = 33;
     private static final int VCULL = 30, VMARGIN = 32;
@@ -83,6 +83,15 @@ public final class Gui implements Listener {
                         line("a radius that peeks through walls.", SUB),
                         line("Falls back to the reveal radius while warming", SUB),
                         line("up. Click to toggle.", SUB))));
+        inv.setItem(REACH_CAVES, item(c.reachabilityCaves() ? Material.STONE : Material.GLASS,
+                Component.text("Reachability cave hiding", c.reachabilityCaves() ? GREEN : RED),
+                List.of(line(c.reachabilityCaves() ? "Enabled" : "Disabled", c.reachabilityCaves() ? GREEN : RED),
+                        line("Solidify any cave/base you can't reach, even", SUB),
+                        line("up close - only the cave you're standing in", SUB),
+                        line("stays real. Freecam can't see the rest (it's", SUB),
+                        line("never sent). Mining into a hidden pocket", SUB),
+                        line("reveals it within a moment. Pairs with cave", SUB),
+                        line("hiding + anti-base. Click to toggle.", SUB))));
         inv.setItem(ANTI_BASE, item(c.antiBaseFinder() ? Material.SCULK_SENSOR : Material.SCULK_SHRIEKER,
                 Component.text("Anti-Base Finder", c.antiBaseFinder() ? GREEN : RED),
                 List.of(line(c.antiBaseFinder() ? "Enabled" : "Disabled", c.antiBaseFinder() ? GREEN : RED),
@@ -163,7 +172,8 @@ public final class Gui implements Listener {
         lore.add(line("Cave blocks solidified: " + m.blocksSolidified(), SUB));
         Config c = plugin.cfg();
         lore.add(line("Anti-base: " + (c.antiBaseFinder() ? "on" : "off")
-                + "   Reachability ores: " + (c.reachabilityOres() ? "on" : "off"), SUB));
+                + "   Reach ores: " + (c.reachabilityOres() ? "on" : "off")
+                + "   Reach caves: " + (c.reachabilityCaves() ? "on" : "off"), SUB));
         return item(Material.BOOK, Component.text("Live statistics", YELLOW), lore);
     }
 
@@ -186,6 +196,7 @@ public final class Gui implements Listener {
             case BLOCK_ENT -> c.setHideBlockEntities(!c.hideBlockEntities());
             case ANTI_BASE -> c.setAntiBaseFinder(!c.antiBaseFinder());
             case REACH -> c.setReachabilityOres(!c.reachabilityOres());
+            case REACH_CAVES -> c.setReachabilityCaves(!c.reachabilityCaves());
             case CACHE -> c.setChunkCache(!c.chunkCache());
             case VCULL -> c.setVerticalCulling(!c.verticalCulling());
             case VMARGIN -> c.setVerticalMargin(clamp(c.verticalMargin() + (left ? 8 : -8), 8, 128));

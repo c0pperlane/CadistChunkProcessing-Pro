@@ -85,8 +85,24 @@ falls back to `ore-reveal-radius`, so you never get a blank gap. Scanning is
 bounded to the real bubble and a vertical band, but on a large/busy server keep
 an eye on `/tps` after enabling. Off by default.
 
-> This is the foundation for the wider reachability work (hiding caves/bases you
-> can't reach, and camouflaging surface entrances) — shipping in stages.
+### Reachability cave/base hiding
+
+The same reachability primitive can hide *geometry*, not just ore.
+`reachability-caves` (GUI toggle, `/cadistchunk reachcaves`) solidifies, even in
+the close-up real bubble, every cave-air cell you **can't reach** — so only the
+cave you're actually standing in stays real. A cave or base you aren't inside
+reads as solid rock even up close, and **freecam can't see it** because it was
+never sent. With `anti-base-finder` also on, the enclosed man-made blocks of a
+base you can't reach are scrubbed too, so its walls don't outline it on x-ray.
+
+Digging in the cave you're in is correct; mining a wall into a hidden pocket
+reveals it within a moment (a re-scan + re-send — never void, just a brief
+catch-up). A **sealed** base (behind a closed door/trapdoor/wall) becomes fully
+hidden; a cave that's genuinely open and walk-into-able from where a viewer
+stands is real terrain and can't be hidden. Recommended together with
+cave-hiding + anti-base-finder. Off by default.
+
+> Remaining stage: camouflaging surface entrances (trapdoors/ladders/hatches).
 
 ## Modes (live-switchable)
 
@@ -105,6 +121,7 @@ an eye on `/tps` after enabling. Off by default.
 - `/cadistchunk cave` / `ore` — toggle hiding
 - `/cadistchunk antibase` — toggle the Anti-Base Finder (aggressive base hiding)
 - `/cadistchunk reach` — toggle reachability ore reveal (see below)
+- `/cadistchunk reachcaves` — toggle reachability cave/base hiding (see below)
 - `/cadistchunk reload`
 
 Permission `cadistchunkprocessing.bypass` makes a player receive raw chunks.

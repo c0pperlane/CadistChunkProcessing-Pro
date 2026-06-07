@@ -95,7 +95,7 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
 
         boolean caves = config.caveHiding();
         boolean ores = config.oreHiding();
-        if (!caves && !ores) return;
+        if (!caves && !ores && !config.reachabilityCaves()) return;
 
         UUID worldId = tracker.worldUID(id);
         if (worldId == null) return;
@@ -147,11 +147,21 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
         if (ySize == 0) return;
 
         BorderSeed seed = (tier == Tier.SHELL) ? borderCache.seedFor(worldId, cx, cz, ySize) : null;
-        OreView oreView = oreViewFor(tier, id, worldId, cx, cz, ySize);
+
+        // Reachability mask for this chunk (REAL tier only): the air the player can
+        // actually reach. Used for ore reveal and/or cave hiding; null while warming
+        // up so both gracefully fall back.
+        boolean reachSnap = tier == Tier.REAL && config.reachabilityActive()
+                && reachability.hasSnapshot(id, worldId, ySize);
+        boolean[] reachMask = reachSnap ? reachability.maskFor(id, cx, cz) : null;
+
+        OreView oreView = oreViewFor(tier, id, cx, cz, reachSnap, reachMask);
         int verticalCut = verticalCutFor(tier, id, meta.minY(), ySize);
+        boolean[] caveReach = config.reachabilityCaves() ? reachMask : null;
         ChunkProcessor.Result res = processor.get().process(
                 buf, ySize, meta.minY(), tier, params, ores, oreView,
-                meta.ghostHigh(), meta.ghostLow(), seed, verticalCut, config.antiBaseFinder());
+                meta.ghostHigh(), meta.ghostLow(), seed, verticalCut, config.antiBaseFinder(),
+                caveReach, config.reachabilityCaves());
 
         if (caves) {
             storeFaces(worldId, cx, cz, ySize, buf);
@@ -230,17 +240,16 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
      *  - the real bubble    → surface-exposed OR ore within reveal radius of the
      *                         player (the cave you're actually standing in).
      */
-    private OreView oreViewFor(Tier tier, UUID id, UUID worldId, int cx, int cz, int ySize) {
+    private OreView oreViewFor(Tier tier, UUID id, int cx, int cz, boolean reachSnap, boolean[] reachMask) {
         if (config.hideAllOres()) return OreView.hideAll();
         if (tier != Tier.REAL) return OreView.surfaceOnly();
 
         // Reachability ore reveal: show ore only where it touches air the player
         // can actually reach (the cave they're in) — never a radius through walls.
-        if (config.reachabilityOres() && reachability.hasSnapshot(id, worldId, ySize)) {
-            boolean[] mask = reachability.maskFor(id, cx, cz);
+        if (config.reachabilityOres() && reachSnap) {
             // mask present -> reveal against it; absent -> this REAL chunk has no
             // reachable air, so be strict (surface veins only).
-            return mask != null ? OreView.surfaceAndReachable(mask) : OreView.surfaceOnly();
+            return reachMask != null ? OreView.surfaceAndReachable(reachMask) : OreView.surfaceOnly();
         }
 
         int[] pos = tracker.pos(id);

@@ -62,7 +62,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
         var pm = getServer().getPluginManager();
         pm.registerEvents(tracker, this);
         pm.registerEvents(gui, this);
-        pm.registerEvents(new ChunkDirtyListener(borderCache, chunkCache), this);
+        pm.registerEvents(new ChunkDirtyListener(borderCache, chunkCache, reachability), this);
 
         registered = PacketEvents.getAPI().getEventManager().registerListener(interceptor);
 
@@ -107,7 +107,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
-            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | antibase | reach | reload", SUB);
+            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | antibase | reach | reachcaves | reload", SUB);
             return true;
         }
         switch (args[0].toLowerCase()) {
@@ -120,7 +120,8 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                 send(sender, "  mode: " + config.mode().display
                         + "  cave=" + config.caveHiding() + "  ore=" + config.oreHiding(), SUB);
                 send(sender, "  anti-base=" + config.antiBaseFinder()
-                        + "  reachability-ores=" + config.reachabilityOres()
+                        + "  reach-ores=" + config.reachabilityOres()
+                        + "  reach-caves=" + config.reachabilityCaves()
                         + "  vertical-cull=" + config.verticalCulling(), SUB);
                 send(sender, String.format("  bandwidth saved: %.1f%%  (%s this session)",
                         monitor.savingsPercent(), monitor.savedHuman()), GREEN);
@@ -172,6 +173,11 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                 config.setReachabilityOres(!config.reachabilityOres());
                 applyChanges();
                 send(sender, "Reachability ore reveal " + (config.reachabilityOres() ? "enabled." : "disabled."), GREEN);
+            }
+            case "reachcaves" -> {
+                config.setReachabilityCaves(!config.reachabilityCaves());
+                applyChanges();
+                send(sender, "Reachability cave hiding " + (config.reachabilityCaves() ? "enabled." : "disabled."), GREEN);
             }
             case "reload" -> {
                 config.reload();

@@ -522,6 +522,68 @@ class ChunkProcessorTest {
         assertEquals(ORE, out[idx(5, 40, 5)], "with no mask, surface ore is still kept");
     }
 
+    // ---- reachability cave hiding (REAL tier) ----
+
+    @Test
+    void reachabilityCaves_keepsReachable_solidifiesSealed_keepsSurface_noVoid() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        out[idx(8, 30, 8)] = AIR; out[idx(8, 30, 9)] = AIR;   // the cave the player is in
+        out[idx(1, 10, 1)] = AIR; out[idx(2, 10, 1)] = AIR;   // a sealed cave elsewhere
+        int[] in = out.clone();
+
+        boolean[] reach = new boolean[ySize << 8];
+        reach[idx(8, 30, 8)] = true; reach[idx(8, 30, 9)] = true;
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, reach, true);
+
+        assertEquals(AIR, out[idx(8, 30, 8)], "the reachable cave must stay real");
+        assertEquals(AIR, out[idx(8, 30, 9)], "the reachable cave must stay real");
+        assertEquals(STONE, out[idx(1, 10, 1)], "a cave you can't reach must be solidified, even in REAL");
+        assertEquals(STONE, out[idx(2, 10, 1)], "a cave you can't reach must be solidified, even in REAL");
+        // surface/sky untouched
+        for (int z = 0; z < 16; z++)
+            for (int x = 0; x < 16; x++)
+                for (int y = 40; y < ySize; y++)
+                    assertEquals(in[idx(x, y, z)], out[idx(x, y, z)], "surface/sky changed at " + x + "," + y + "," + z);
+        // never creates void
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(out[i]))
+                assertTrue(CLF.isTransparent(in[i]), "reachability caves created void at idx " + i);
+    }
+
+    @Test
+    void reachabilityCaves_scrubsUnreachableBaseWalls_keepsWallsByYourCave() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        out[idx(8, 30, 8)] = AIR;                  // the cave the player is in
+        out[idx(7, 30, 8)] = BRICKS;               // a wall touching the reachable cave
+        out[idx(3, 12, 3)] = BRICKS;               // an enclosed base wall you can't reach
+        boolean[] reach = new boolean[ySize << 8];
+        reach[idx(8, 30, 8)] = true;
+        // anti-base ON so enclosed man-made blocks are scrubbed
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, true, reach, true);
+        assertEquals(BRICKS, out[idx(7, 30, 8)], "a wall touching the cave you're in stays real");
+        assertEquals(STONE, out[idx(3, 12, 3)], "an enclosed unreachable base wall is scrubbed");
+    }
+
+    @Test
+    void reachabilityCaves_disabledOrNullMaskLeavesRealIntact() {
+        int ySize = 64;
+        int[] off = flatWorld(ySize, 40);
+        off[idx(1, 10, 1)] = AIR;
+        proc().process(off, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false);
+        assertEquals(AIR, off[idx(1, 10, 1)], "disabled: REAL leaves caves intact");
+
+        int[] warming = flatWorld(ySize, 40);
+        warming[idx(1, 10, 1)] = AIR;
+        proc().process(warming, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, true);
+        assertEquals(AIR, warming[idx(1, 10, 1)], "null mask (warming up): no cave hiding yet");
+    }
+
     @Test
     void antiBaseFinder_offByDefaultOverloadEquivalence() {
         // The 11-arg overload (no anti-base) must equal the 12-arg overload with false.

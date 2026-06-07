@@ -82,6 +82,15 @@ public final class ReachabilityService {
         lastPos.clear();
     }
 
+    /**
+     * Force a recompute for one player on the next tick (e.g. they mined a wall
+     * into a hidden pocket, so reachability changed without them moving). Clearing
+     * the last position defeats the move-threshold so the next scan runs.
+     */
+    public void invalidate(UUID id) {
+        lastPos.remove(id);
+    }
+
     // ---- packet-thread accessors (race-free: Snap is immutable once published) ----
 
     /** True if a fresh reachability snapshot exists for this player+world+height. */
@@ -103,7 +112,7 @@ public final class ReachabilityService {
     // ---- main-thread scan ----
 
     private void tick() {
-        boolean on = config.reachabilityOres();
+        boolean on = config.reachabilityActive();
         if (!on) {
             if (!byPlayer.isEmpty()) { byPlayer.clear(); lastPos.clear(); }
             return;

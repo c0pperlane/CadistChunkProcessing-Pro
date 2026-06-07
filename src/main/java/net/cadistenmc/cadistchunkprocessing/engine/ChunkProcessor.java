@@ -133,6 +133,25 @@ public final class ChunkProcessor {
                           Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
                           int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
                           boolean antiBaseFinder) {
+        return process(blocks, ySize, minY, tier, params, oreCamo, oreView, ghostHigh, ghostLow,
+                border, verticalCutLocalY, antiBaseFinder, null, false);
+    }
+
+    /**
+     * As above, plus reachability cave hiding. In the REAL tier, when
+     * {@code reachabilityCaves} is on and a {@code reachable} mask (chunk-local,
+     * idx = (y&lt;&lt;8)|(z&lt;&lt;4)|x) is supplied, every cave-air cell the
+     * player can NOT reach is solidified — so a cave/base you aren't standing in
+     * reads as solid rock even up close, and freecam can't see it (it's never
+     * sent). The cave you're in (reachable) stays real, so digging there is
+     * correct; mining into a hidden pocket reveals it on the next scan. With
+     * {@code antiBaseFinder} also on, enclosed man-made blocks you can't reach are
+     * scrubbed too, so a base's walls don't outline it on x-ray. Pure solidify.
+     */
+    public Result process(int[] blocks, int ySize, int minY,
+                          Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
+                          int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
+                          boolean antiBaseFinder, boolean[] reachable, boolean reachabilityCaves) {
         Result r = new Result();
         final int total = ySize << 8;
         ensureScratch(total);
@@ -159,6 +178,11 @@ public final class ChunkProcessor {
             }
             // DEEP: dist stays -1 everywhere -> nothing revealed -> all hidden.
             solidifyHidden(blocks, ySize, minY, ghostHigh, ghostLow, total, r);
+        } else if (reachabilityCaves && reachable != null && reachable.length >= total) {
+            // REAL tier: hide every cave the player can't reach (sealed bases,
+            // caves you aren't standing in) while keeping the one you're in real.
+            classifyCaveAir(blocks, heightMap, ySize, total);
+            solidifyUnreachable(blocks, ySize, minY, ghostHigh, ghostLow, total, reachable, r);
         }
 
         if (oreCamo) {
@@ -179,6 +203,13 @@ public final class ChunkProcessor {
         // as plain rock from above or through a wall. Pure solidify.
         if (antiBaseFinder && tier != Tier.REAL) {
             solidifyArtificial(blocks, heightMap, minY, ghostHigh, ghostLow, r);
+        }
+
+        // REAL tier + reachability + anti-base: scrub enclosed man-made blocks the
+        // player can't reach, so a hidden base's walls don't outline it on x-ray.
+        if (antiBaseFinder && tier == Tier.REAL && reachabilityCaves
+                && reachable != null && reachable.length >= total) {
+            solidifyArtificialUnreachable(blocks, heightMap, ySize, minY, ghostHigh, ghostLow, reachable, r);
         }
 
         // Vertical culling: solidify everything below the player's depth margin.
@@ -401,6 +432,60 @@ public final class ChunkProcessor {
                 r.blocksSolidified++;
             }
         }
+    }
+
+    /**
+     * REAL-tier reachability: solidify every cave-air cell the player can't reach.
+     * {@code caveAir} already marks only transparent space below the surface, so
+     * surfaces/sky are never touched; a reachable cell (the cave you're in) is
+     * kept. Pure solidify — only ever writes a solid block.
+     */
+    private void solidifyUnreachable(int[] blocks, int ySize, int minY,
+                                     int ghostHigh, int ghostLow, int total, boolean[] reachable, Result r) {
+        for (int idx = 0; idx < total; idx++) {
+            if (caveAir[idx] && !reachable[idx]) {
+                int worldY = minY + (idx >> 8);
+                blocks[idx] = worldY < 0 ? ghostLow : ghostHigh;
+                r.blocksSolidified++;
+            }
+        }
+    }
+
+    /**
+     * REAL-tier reachability + anti-base: solidify man-made blocks below the
+     * surface that touch no reachable air — i.e. the walls/floor of a base you
+     * aren't inside. When you're in the base the interior air is reachable, so the
+     * adjacent blocks are kept and it stays real.
+     */
+    private void solidifyArtificialUnreachable(int[] blocks, int[] heightMap, int ySize, int minY,
+                                               int ghostHigh, int ghostLow, boolean[] reachable, Result r) {
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                int s = heightMap[(z << 4) | x];
+                if (s < 0) continue;
+                for (int y = 0; y < s; y++) {
+                    int idx = (y << 8) | (z << 4) | x;
+                    if (!clf.isArtificial(blocks[idx])) continue;
+                    if (adjacentReachable(reachable, idx, x, y, z, ySize)) continue;
+                    int g = (minY + y) < 0 ? ghostLow : ghostHigh;
+                    if (blocks[idx] != g) {
+                        blocks[idx] = g;
+                        r.blocksSolidified++;
+                    }
+                }
+            }
+        }
+    }
+
+    /** True if any of the six neighbours is a cell the player can reach. */
+    private boolean adjacentReachable(boolean[] m, int idx, int x, int y, int z, int ySize) {
+        if (x > 0          && m[idx - 1])   return true;
+        if (x < 15         && m[idx + 1])   return true;
+        if (z > 0          && m[idx - 16])  return true;
+        if (z < 15         && m[idx + 16])  return true;
+        if (y > 0          && m[idx - 256]) return true;
+        if (y < ySize - 1  && m[idx + 256]) return true;
+        return false;
     }
 
     // ------------------------------------------------------------- homogenize
