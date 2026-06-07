@@ -19,6 +19,22 @@ mode: BALANCED
 cave-hiding: true   # hide caves below the surface
 ore-hiding: true    # anti-xray: camouflage ores you cannot legitimately see
 
+# Anti-Base Finder (aggressive base hiding). A normal cave mouth reveals inward
+# so it never false-culls — but a player-dug entrance tunnel, ladder/water-lift
+# shaft or hollowed room is ALSO a "cave mouth", so without this it would reveal
+# too and betray a base. With this on, in the hidden tiers (SHELL/DEEP):
+#   * any connected pocket of cave space that touches a man-made block (the whole
+#     tunnel/shaft/room, not just the bit next to it) is treated as a base and
+#     stays solid even if it reaches an opening — the entrance never "opens"; and
+#   * the base's own blocks below ground (ladders, rails, redstone, lamps, doors,
+#     signs, building blocks, mineral-storage blocks…) are recoloured to plain
+#     rock, so nothing leaks through a thin wall or a window.
+# Strictly sub-surface and solidify-only (no void): surfaces stay vanilla and the
+# REAL bubble is untouched, so YOUR base re-appears in full as you walk up to it.
+# Aggressive by design — a connected natural cave that a base tunnels into will
+# also be hidden while far away. Off by default; opt in if you want it.
+anti-base-finder: false
+
 # Anti-xray ore visibility:
 #   false (default) = show only ores you could legitimately see — surface-exposed
 #                     veins (any distance) PLUS ores in the cave you're actually

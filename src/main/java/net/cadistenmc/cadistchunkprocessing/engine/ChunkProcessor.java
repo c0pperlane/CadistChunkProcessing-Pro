@@ -40,9 +40,14 @@ public final class ChunkProcessor {
 
     // Reusable scratch buffers (grown on demand for the tallest world seen).
     private boolean[] caveAir = new boolean[0];
+    private boolean[] tainted = new boolean[0];   // cave air belonging to a man-made (base) space
+    private boolean[] seen = new boolean[0];       // visited flag for the taint flood-fill
     private int[] dist = new int[0];
     private int[] queue = new int[0];
     private final int[] sortScratch = new int[4096];
+
+    /** True for the current column iff the anti-base-finder taint mask is live. */
+    private boolean useTaint;
 
     public ChunkProcessor(BlockClassifier clf) {
         this.clf = clf;
@@ -103,9 +108,35 @@ public final class ChunkProcessor {
     public Result process(int[] blocks, int ySize, int minY,
                           Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
                           int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY) {
+        return process(blocks, ySize, minY, tier, params, oreCamo, oreView,
+                ghostHigh, ghostLow, border, verticalCutLocalY, false);
+    }
+
+    /**
+     * As above, plus {@code antiBaseFinder}: the aggressive anti-base layer. When
+     * enabled, in the hidden tiers (SHELL/DEEP) the engine additionally
+     * <ol>
+     *   <li><b>never reveals man-made space.</b> A connected pocket of cave air
+     *       that touches any player-signature block (a dug tunnel, ladder shaft,
+     *       water-lift, hollowed room) is treated as a base and is solidified
+     *       even if it reaches a genuine opening — so the shell reveal can no
+     *       longer punch a base entrance open. Natural caves still reveal.</li>
+     *   <li><b>camouflages the signature blocks themselves</b> below the surface
+     *       (building blocks, ladders, rails, redstone, lamps, doors, signs …) to
+     *       the ghost rock, so nothing leaks through a thin wall or window.</li>
+     * </ol>
+     * Strictly sub-surface and "solidify, never void" like the rest of the
+     * engine: surfaces stay vanilla and the REAL bubble is untouched, so your own
+     * base re-appears in full as you walk up to it.
+     */
+    public Result process(int[] blocks, int ySize, int minY,
+                          Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
+                          int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
+                          boolean antiBaseFinder) {
         Result r = new Result();
         final int total = ySize << 8;
         ensureScratch(total);
+        useTaint = false;
 
         r.bytesBefore = estimateBytes(blocks, ySize);
 
@@ -116,6 +147,13 @@ public final class ChunkProcessor {
         if (tier != Tier.REAL) {
             classifyCaveAir(blocks, heightMap, ySize, total);
             if (tier == Tier.SHELL) {
+                // Anti-base only matters for the SHELL reveal — DEEP already hides
+                // every cave, base or not. Build the man-made-space mask so the
+                // reveal BFS skips it (the base entrance never opens).
+                if (antiBaseFinder) {
+                    markArtificialTaint(blocks, total, ySize);
+                    useTaint = true;
+                }
                 markRevealedShell(blocks, heightMap, ySize, total,
                         params.entranceShellDepth(), border);
             }
@@ -133,6 +171,14 @@ public final class ChunkProcessor {
         // preserved while everything genuinely hidden collapses.
         if (tier != Tier.REAL && params.rockCollapse()) {
             collapseSubSurface(blocks, heightMap, minY, ghostHigh, ghostLow, params.homogenizeBelow(), r);
+        }
+
+        // Anti-base finder: scrub player-signature blocks that survive below the
+        // surface (e.g. inside the near-surface margin rock-collapse preserves, or
+        // when rock-collapse is off) so a base built just under the ground reads
+        // as plain rock from above or through a wall. Pure solidify.
+        if (antiBaseFinder && tier != Tier.REAL) {
+            solidifyArtificial(blocks, heightMap, minY, ghostHigh, ghostLow, r);
         }
 
         // Vertical culling: solidify everything below the player's depth margin.
@@ -201,6 +247,7 @@ public final class ChunkProcessor {
         int tail = 0;
         for (int idx = 0; idx < total; idx++) {
             if (!caveAir[idx]) continue;
+            if (useTaint && tainted[idx]) continue;   // man-made space never seeds a reveal
             int x = idx & 15, z = (idx >> 4) & 15, y = idx >> 8;
             if (touchesOpening(blocks, idx, x, y, z, ySize, border)) {
                 dist[idx] = 0;
@@ -225,11 +272,100 @@ public final class ChunkProcessor {
 
     /** Relax a neighbour during the BFS; returns the (possibly grown) queue tail. */
     private int relax(int n, int nd, int tail) {
-        if (caveAir[n] && dist[n] < 0) {
+        if (caveAir[n] && dist[n] < 0 && !(useTaint && tainted[n])) {
             dist[n] = nd;
             queue[tail++] = n;
         }
         return tail;
+    }
+
+    // ------------------------------------------------------ anti-base-finder
+
+    /**
+     * Mark every cave-air cell that belongs to a <em>man-made</em> space. A space
+     * is man-made if its connected (6-neighbour) pocket of cave air touches any
+     * player-signature block — a dug tunnel, a ladder/water-lift shaft, a hollowed
+     * room or a walled-off cellar. Marking the whole connected component (not just
+     * cells next to a block) means even the open centre of a large room is caught,
+     * so the shell reveal can never crack a base open from a corner.
+     *
+     * <p>Natural caves (bordered only by terrain) are never marked and reveal as
+     * usual. Pure read of {@code caveAir} + the classifier; mutates only the
+     * {@code tainted}/{@code seen}/{@code queue} scratch.
+     */
+    private void markArtificialTaint(int[] blocks, int total, int ySize) {
+        Arrays.fill(tainted, 0, total, false);
+        Arrays.fill(seen, 0, total, false);
+        for (int start = 0; start < total; start++) {
+            if (!caveAir[start] || seen[start]) continue;
+            int head = 0, tail = 0;
+            queue[tail++] = start;
+            seen[start] = true;
+            boolean artificial = false;
+            while (head < tail) {
+                int idx = queue[head++];
+                int x = idx & 15, z = (idx >> 4) & 15, y = idx >> 8;
+                if (!artificial && touchesArtificial(blocks, idx, x, y, z, ySize)) {
+                    artificial = true;
+                }
+                if (x > 0)         tail = visit(idx - 1,   tail);
+                if (x < 15)        tail = visit(idx + 1,   tail);
+                if (z > 0)         tail = visit(idx - 16,  tail);
+                if (z < 15)        tail = visit(idx + 16,  tail);
+                if (y > 0)         tail = visit(idx - 256, tail);
+                if (y < ySize - 1) tail = visit(idx + 256, tail);
+            }
+            if (artificial) {
+                for (int i = 0; i < tail; i++) tainted[queue[i]] = true;
+            }
+        }
+    }
+
+    /** Enqueue an unvisited cave-air neighbour for the taint flood-fill. */
+    private int visit(int n, int tail) {
+        if (caveAir[n] && !seen[n]) {
+            seen[n] = true;
+            queue[tail++] = n;
+        }
+        return tail;
+    }
+
+    /** True if any of the six face neighbours is a player-signature block. */
+    private boolean touchesArtificial(int[] blocks, int idx, int x, int y, int z, int ySize) {
+        if (x > 0          && clf.isArtificial(blocks[idx - 1]))   return true;
+        if (x < 15         && clf.isArtificial(blocks[idx + 1]))   return true;
+        if (z > 0          && clf.isArtificial(blocks[idx - 16]))  return true;
+        if (z < 15         && clf.isArtificial(blocks[idx + 16]))  return true;
+        if (y > 0          && clf.isArtificial(blocks[idx - 256])) return true;
+        if (y < ySize - 1  && clf.isArtificial(blocks[idx + 256])) return true;
+        return false;
+    }
+
+    /**
+     * Solidify every player-signature block strictly below its column's surface to
+     * the world-correct ghost rock. Catches the base's actual materials (ladders,
+     * rails, redstone, lamps, doors, signs, building blocks) so none leak through a
+     * thin wall or a window. Above-ground builds sit at/above the surface line and
+     * are never in range. Pure solidify — only ever overwrites with solid rock.
+     */
+    private void solidifyArtificial(int[] blocks, int[] heightMap, int minY,
+                                    int ghostHigh, int ghostLow, Result r) {
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                int s = heightMap[(z << 4) | x];
+                if (s < 0) continue;                 // no terrain in this column -> leave it
+                for (int y = 0; y < s; y++) {
+                    int idx = (y << 8) | (z << 4) | x;
+                    if (clf.isArtificial(blocks[idx])) {
+                        int g = (minY + y) < 0 ? ghostLow : ghostHigh;
+                        if (blocks[idx] != g) {
+                            blocks[idx] = g;
+                            r.blocksSolidified++;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private boolean touchesOpening(int[] blocks, int idx, int x, int y, int z,
@@ -432,6 +568,8 @@ public final class ChunkProcessor {
     private void ensureScratch(int total) {
         if (caveAir.length < total) {
             caveAir = new boolean[total];
+            tainted = new boolean[total];
+            seen = new boolean[total];
             dist = new int[total];
             queue = new int[total];
         }

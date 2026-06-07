@@ -12,13 +12,16 @@ class ChunkProcessorTest {
 
     // Synthetic block ids.
     static final int AIR = 0, STONE = 1, DEEPSLATE = 2, ORE = 3, WATER = 4, DIRT = 5, GLASS = 6;
+    // Anti-base-finder fixtures: a solid man-made block and a transparent one (a ladder).
+    static final int BRICKS = 20, LADDER = 21;
 
     static final BlockClassifier CLF = new BlockClassifier() {
-        @Override public boolean isTransparent(int id) { return id == AIR || id == WATER || id == GLASS; }
+        @Override public boolean isTransparent(int id) { return id == AIR || id == WATER || id == GLASS || id == LADDER; }
         @Override public boolean isOre(int id) { return id == ORE; }
         @Override public boolean isTerrain(int id) {
             return id == STONE || id == DEEPSLATE || id == DIRT || id == 7 || id == 8 || id == 9 || id == 10;
         }
+        @Override public boolean isArtificial(int id) { return id == BRICKS || id == LADDER; }
     };
 
     static final ModeParams P = new ModeParams(4, 10, 4, 8, true, 2);
@@ -390,5 +393,113 @@ class ChunkProcessorTest {
         proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
                 STONE, DEEPSLATE, null, -1);
         assertEquals(AIR, out[idx(5, 10, 5)], "with cut disabled, REAL leaves geometry intact");
+    }
+
+    // ---- anti-base-finder ----
+
+    /**
+     * A man-made entrance tunnel that reaches a real opening to the sky at x=2,
+     * with a ladder inside it and a brick floor block — a textbook base tell.
+     */
+    private static int[] baseTunnelFixture(int ySize) {
+        int[] b = flatWorld(ySize, 40);
+        for (int x = 2; x <= 10; x++) b[idx(x, 20, 8)] = AIR;       // horizontal tunnel
+        for (int y = 20; y < ySize; y++) b[idx(2, y, 8)] = AIR;     // vertical shaft to the sky (the opening)
+        b[idx(5, 19, 8)] = BRICKS;                                  // a built floor block under the tunnel
+        b[idx(8, 20, 8)] = LADDER;                                  // a ladder inside the tunnel (below surface)
+        return b;
+    }
+
+    @Test
+    void antiBaseFinder_manMadeTunnelNotRevealed() {
+        int ySize = 64;
+        // Baseline: with anti-base OFF, the shell reveals the tunnel near the opening.
+        int[] off = baseTunnelFixture(ySize);
+        proc().process(off, ySize, 0, Tier.SHELL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false);
+        assertEquals(AIR, off[idx(4, 20, 8)], "control: without anti-base the base tunnel reveals near the opening");
+
+        // With anti-base ON, the whole man-made pocket stays solid despite the opening,
+        // and the ladder inside it is scrubbed to rock.
+        int[] on = baseTunnelFixture(ySize);
+        proc().process(on, ySize, 0, Tier.SHELL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, true);
+        for (int x = 3; x <= 10; x++)
+            assertEquals(STONE, on[idx(x, 20, 8)], "anti-base must keep the man-made tunnel solid at x=" + x);
+        // The above-surface part of the shaft (open sky) is still untouched.
+        assertEquals(AIR, on[idx(2, 45, 8)], "open sky above the surface must remain air");
+    }
+
+    @Test
+    void antiBaseFinder_naturalCaveStillReveals() {
+        int ySize = 64;
+        int[] out = tunnelFixture(ySize);   // purely natural: no man-made blocks
+        proc().process(out, ySize, 0, Tier.SHELL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, true);
+        assertEquals(AIR, out[idx(5, 20, 8)], "a natural cave near an opening must still reveal under anti-base");
+        assertEquals(STONE, out[idx(10, 20, 8)], "natural cave beyond the shell still solidifies");
+    }
+
+    @Test
+    void antiBaseFinder_scrubsBuriedBaseBlocks() {
+        int ySize = 64;
+        // A base block sitting in the near-surface margin that rock-collapse preserves.
+        int[] base = flatWorld(ySize, 40);
+        base[idx(5, 38, 5)] = BRICKS;       // y=38 is above the collapse cut (40 - homogenize 8 = 32)
+        base[idx(6, 38, 5)] = LADDER;
+
+        int[] off = base.clone();
+        proc().process(off, ySize, 0, Tier.DEEP, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false);
+        assertEquals(BRICKS, off[idx(5, 38, 5)], "control: without anti-base the margin keeps the base block");
+
+        int[] on = base.clone();
+        proc().process(on, ySize, 0, Tier.DEEP, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, true);
+        assertEquals(STONE, on[idx(5, 38, 5)], "anti-base must scrub the buried building block to rock");
+        assertEquals(STONE, on[idx(6, 38, 5)], "anti-base must scrub the buried ladder to rock");
+    }
+
+    @Test
+    void antiBaseFinder_neverCreatesVoid() {
+        for (Tier tier : new Tier[]{Tier.SHELL, Tier.DEEP}) {
+            int ySize = 64;
+            int[] in = baseTunnelFixture(ySize);
+            in[idx(7, 10, 7)] = ORE;
+            int[] out = in.clone();
+            proc().process(out, ySize, 0, tier, P, true, OreView.keepExposed(),
+                    STONE, DEEPSLATE, null, -1, true);
+            for (int i = 0; i < in.length; i++) {
+                if (CLF.isTransparent(out[i])) {
+                    assertTrue(CLF.isTransparent(in[i]),
+                            "anti-base (" + tier + ") created transparency at idx " + i);
+                }
+            }
+        }
+    }
+
+    @Test
+    void antiBaseFinder_realBubbleUntouched() {
+        int ySize = 64;
+        int[] in = baseTunnelFixture(ySize);
+        int[] out = in.clone();
+        // REAL tier, no ore camo: anti-base must be a no-op so your own base shows up close.
+        ChunkProcessor.Result r = proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, true);
+        assertArrayEquals(in, out, "anti-base must not touch the REAL bubble");
+        assertFalse(r.modified);
+    }
+
+    @Test
+    void antiBaseFinder_offByDefaultOverloadEquivalence() {
+        // The 11-arg overload (no anti-base) must equal the 12-arg overload with false.
+        int ySize = 64;
+        int[] a = baseTunnelFixture(ySize);
+        int[] b = baseTunnelFixture(ySize);
+        proc().process(a, ySize, 0, Tier.SHELL, P, true, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1);
+        proc().process(b, ySize, 0, Tier.SHELL, P, true, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false);
+        assertArrayEquals(a, b, "the legacy overload must behave exactly like anti-base=false");
     }
 }

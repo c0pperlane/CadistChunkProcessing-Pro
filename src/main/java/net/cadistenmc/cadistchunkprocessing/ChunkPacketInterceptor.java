@@ -148,7 +148,7 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
         int verticalCut = verticalCutFor(tier, id, meta.minY(), ySize);
         ChunkProcessor.Result res = processor.get().process(
                 buf, ySize, meta.minY(), tier, params, ores, oreView,
-                meta.ghostHigh(), meta.ghostLow(), seed, verticalCut);
+                meta.ghostHigh(), meta.ghostLow(), seed, verticalCut, config.antiBaseFinder());
 
         if (caves) {
             storeFaces(worldId, cx, cz, ySize, buf);
