@@ -490,6 +490,38 @@ class ChunkProcessorTest {
         assertFalse(r.modified);
     }
 
+    // ---- reachability ore reveal ----
+
+    @Test
+    void reachabilityOre_keepsReachableCave_hidesSealed_keepsSurface() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        out[idx(8, 30, 8)] = AIR;  out[idx(9, 30, 8)] = ORE;   // ore in the cave the player can reach
+        out[idx(1, 10, 1)] = AIR;  out[idx(2, 10, 1)] = ORE;   // ore in a sealed (unreachable) cave
+        out[idx(5, 40, 5)] = ORE;                              // surface-exposed vein
+
+        boolean[] reach = new boolean[ySize << 8];
+        reach[idx(8, 30, 8)] = true;                            // only the player's cave is reachable
+        OreView v = OreView.surfaceAndReachable(reach);
+        proc().process(out, ySize, 0, Tier.REAL, P, true, v, STONE, DEEPSLATE, null, -1, false);
+
+        assertEquals(ORE, out[idx(9, 30, 8)], "ore in the reachable cave must stay visible");
+        assertEquals(STONE, out[idx(2, 10, 1)], "ore in a sealed cave must be hidden (no peeking through walls)");
+        assertEquals(ORE, out[idx(5, 40, 5)], "surface-exposed vein must stay visible");
+    }
+
+    @Test
+    void reachabilityOre_nullMaskHidesAllButSurface() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        out[idx(8, 30, 8)] = AIR;  out[idx(9, 30, 8)] = ORE;
+        out[idx(5, 40, 5)] = ORE;                              // surface-exposed
+        proc().process(out, ySize, 0, Tier.REAL, P, true, OreView.surfaceAndReachable(null),
+                STONE, DEEPSLATE, null, -1, false);
+        assertEquals(STONE, out[idx(9, 30, 8)], "with no mask, non-surface ore is hidden");
+        assertEquals(ORE, out[idx(5, 40, 5)], "with no mask, surface ore is still kept");
+    }
+
     @Test
     void antiBaseFinder_offByDefaultOverloadEquivalence() {
         // The 11-arg overload (no anti-base) must equal the 12-arg overload with false.

@@ -22,6 +22,7 @@ public final class Config {
     private volatile boolean hideAllOres = false;
     private volatile boolean hideBlockEntities = true;
     private volatile boolean antiBaseFinder = false;
+    private volatile boolean reachabilityOres = false;
     private volatile boolean chunkCache = true;
     private volatile boolean collapseBiomes = true;
     private volatile boolean verticalCulling = true;
@@ -50,6 +51,7 @@ public final class Config {
         this.hideAllOres = c.getBoolean("hide-all-ores", false);
         this.hideBlockEntities = c.getBoolean("hide-block-entities", true);
         this.antiBaseFinder = c.getBoolean("anti-base-finder", false);
+        this.reachabilityOres = c.getBoolean("reachability-ores", false);
         this.chunkCache = c.getBoolean("chunk-cache", true);
         this.collapseBiomes = c.getBoolean("collapse-biomes", true);
         this.verticalCulling = c.getBoolean("vertical-culling", true);
@@ -107,6 +109,7 @@ public final class Config {
     public boolean hideAllOres() { return hideAllOres; }
     public boolean hideBlockEntities() { return hideBlockEntities; }
     public boolean antiBaseFinder() { return antiBaseFinder; }
+    public boolean reachabilityOres() { return reachabilityOres; }
     public boolean chunkCache() { return chunkCache; }
     public boolean collapseBiomes() { return collapseBiomes; }
     public boolean verticalCulling() { return verticalCulling; }
@@ -130,6 +133,7 @@ public final class Config {
     public void setOreRevealRadius(int v) { set("ore-reveal-radius", v); }
     public void setHideBlockEntities(boolean v) { set("hide-block-entities", v); }
     public void setAntiBaseFinder(boolean v) { set("anti-base-finder", v); }
+    public void setReachabilityOres(boolean v) { set("reachability-ores", v); }
     public void setChunkCache(boolean v) { set("chunk-cache", v); }
     public void setVerticalCulling(boolean v) { set("vertical-culling", v); }
     public void setVerticalMargin(int v) { set("vertical-margin", v); }

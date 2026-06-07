@@ -31,6 +31,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
     private BandwidthMonitor monitor;
     private PlayerTracker tracker;
     private RefreshScheduler scheduler;
+    private ReachabilityService reachability;
     private Gui gui;
     private PacketListenerCommon registered;
 
@@ -50,11 +51,13 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
         monitor = new BandwidthMonitor(this);
         scheduler = new RefreshScheduler(this, config);
         scheduler.start();
+        reachability = new ReachabilityService(this, config, scheduler);
+        reachability.start();
         tracker = new PlayerTracker(config, worldMeta, scheduler);
         gui = new Gui(this);
 
         ChunkPacketInterceptor interceptor = new ChunkPacketInterceptor(
-                this, config, worldMeta, tracker, borderCache, chunkCache, monitor, classifier);
+                this, config, worldMeta, tracker, borderCache, chunkCache, monitor, classifier, reachability);
 
         var pm = getServer().getPluginManager();
         pm.registerEvents(tracker, this);
@@ -73,6 +76,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
         if (registered != null && PacketEvents.getAPI() != null) {
             PacketEvents.getAPI().getEventManager().unregisterListener(registered);
         }
+        if (reachability != null) reachability.stop();
         if (scheduler != null) scheduler.stop();
         if (borderCache != null) borderCache.clear();
     }
@@ -86,6 +90,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
     public void applyChanges() {
         borderCache.clear();
         chunkCache.clear();
+        if (reachability != null) reachability.clear();
         if (classifier != null) classifier.setExtraOres(config.extraOres());
         int r = config.params().caveRenderDistance();
         for (Player p : getServer().getOnlinePlayers()) {
@@ -102,7 +107,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
-            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | antibase | reload", SUB);
+            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | antibase | reach | reload", SUB);
             return true;
         }
         switch (args[0].toLowerCase()) {
@@ -114,6 +119,9 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                 send(sender, "CadistChunkProcessing Pro", MAUVE);
                 send(sender, "  mode: " + config.mode().display
                         + "  cave=" + config.caveHiding() + "  ore=" + config.oreHiding(), SUB);
+                send(sender, "  anti-base=" + config.antiBaseFinder()
+                        + "  reachability-ores=" + config.reachabilityOres()
+                        + "  vertical-cull=" + config.verticalCulling(), SUB);
                 send(sender, String.format("  bandwidth saved: %.1f%%  (%s this session)",
                         monitor.savingsPercent(), monitor.savedHuman()), GREEN);
                 send(sender, "  chunks/sec: " + monitor.chunksPerSecond()
@@ -159,6 +167,11 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                 config.setAntiBaseFinder(!config.antiBaseFinder());
                 applyChanges();
                 send(sender, "Anti-Base Finder " + (config.antiBaseFinder() ? "enabled." : "disabled."), GREEN);
+            }
+            case "reach" -> {
+                config.setReachabilityOres(!config.reachabilityOres());
+                applyChanges();
+                send(sender, "Reachability ore reveal " + (config.reachabilityOres() ? "enabled." : "disabled."), GREEN);
             }
             case "reload" -> {
                 config.reload();

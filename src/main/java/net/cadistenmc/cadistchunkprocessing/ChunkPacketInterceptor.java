@@ -36,6 +36,7 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
     private final ProcessedChunkCache chunkCache;
     private final BandwidthMonitor monitor;
     private final BlockClassifier classifier;
+    private final ReachabilityService reachability;
 
     private final ThreadLocal<int[]> blocks = ThreadLocal.withInitial(() -> new int[24 * 16 * 256]);
     private final ThreadLocal<ChunkProcessor> processor;
@@ -59,7 +60,8 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
 
     public ChunkPacketInterceptor(CadistChunkProcessingPro plugin, Config config, WorldMeta worldMeta,
                                   PlayerTracker tracker, BorderCache borderCache, ProcessedChunkCache chunkCache,
-                                  BandwidthMonitor monitor, BlockClassifier classifier) {
+                                  BandwidthMonitor monitor, BlockClassifier classifier,
+                                  ReachabilityService reachability) {
         super(PacketListenerPriority.NORMAL);
         this.plugin = plugin;
         this.config = config;
@@ -69,6 +71,7 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
         this.chunkCache = chunkCache;
         this.monitor = monitor;
         this.classifier = classifier;
+        this.reachability = reachability;
         this.processor = ThreadLocal.withInitial(() -> new ChunkProcessor(classifier));
     }
 
@@ -144,7 +147,7 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
         if (ySize == 0) return;
 
         BorderSeed seed = (tier == Tier.SHELL) ? borderCache.seedFor(worldId, cx, cz, ySize) : null;
-        OreView oreView = oreViewFor(tier, id, cx, cz);
+        OreView oreView = oreViewFor(tier, id, worldId, cx, cz, ySize);
         int verticalCut = verticalCutFor(tier, id, meta.minY(), ySize);
         ChunkProcessor.Result res = processor.get().process(
                 buf, ySize, meta.minY(), tier, params, ores, oreView,
@@ -227,9 +230,19 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
      *  - the real bubble    → surface-exposed OR ore within reveal radius of the
      *                         player (the cave you're actually standing in).
      */
-    private OreView oreViewFor(Tier tier, UUID id, int cx, int cz) {
+    private OreView oreViewFor(Tier tier, UUID id, UUID worldId, int cx, int cz, int ySize) {
         if (config.hideAllOres()) return OreView.hideAll();
         if (tier != Tier.REAL) return OreView.surfaceOnly();
+
+        // Reachability ore reveal: show ore only where it touches air the player
+        // can actually reach (the cave they're in) — never a radius through walls.
+        if (config.reachabilityOres() && reachability.hasSnapshot(id, worldId, ySize)) {
+            boolean[] mask = reachability.maskFor(id, cx, cz);
+            // mask present -> reveal against it; absent -> this REAL chunk has no
+            // reachable air, so be strict (surface veins only).
+            return mask != null ? OreView.surfaceAndReachable(mask) : OreView.surfaceOnly();
+        }
+
         int[] pos = tracker.pos(id);
         if (pos == null) return OreView.surfaceOnly();
         return OreView.surfaceAndNear(pos[0], pos[1], pos[2], config.oreRevealRadius(), cx << 4, cz << 4);

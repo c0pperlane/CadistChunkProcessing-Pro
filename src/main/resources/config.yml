@@ -54,8 +54,23 @@ hide-all-ores: false
 hide-block-entities: true
 
 # Blocks around the player within which exposed ores stay visible (= "the cave
-# you're in"). Only used when hide-all-ores is false.
+# you're in"). Only used when hide-all-ores is false AND reachability-ores is off.
 ore-reveal-radius: 16
+
+# Reachability ore reveal (smarter than the radius above). Instead of a sphere
+# that can leak ore through a wall, this reveals an ore only if it touches air the
+# player can ACTUALLY reach — the connected cave/tunnel they're standing in. A
+# vein a few blocks away behind solid rock stays hidden; the cave you're in stays
+# fully lit; and it can't be peeked through walls or with freecam (it's computed
+# from your real body position, and unreachable space is never sent).
+#   How: a small, bounded flood-fill around each player runs on the main thread a
+#   few times a second (only when you move into new space), and the result is used
+#   when classifying ore in your real bubble. While it's warming up (just joined /
+#   moving fast) it falls back to ore-reveal-radius, so you never get a blank gap.
+#   Cost: scanning is bounded (real-radius chunks, a vertical band around you) and
+#   throttled; if you're worried about TPS on a big server, watch /tps after
+#   enabling. Off by default.
+reachability-ores: false
 
 # Extra blocks to treat as ore (anti-xray), matched by name substring against
 # the block id. Useful for modded/datapack ores. Examples below (commented):

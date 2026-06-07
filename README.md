@@ -68,6 +68,26 @@ PacketEvents (installed as its own plugin) is used to intercept `CHUNK_DATA`.
 The engine never touches the Bukkit API on the packet thread (LeafMC / Moonrise
 safe). On any error the packet is passed through untouched.
 
+## Reachability ore reveal
+
+The default ore policy keeps a vein visible if it's exposed to air within a fixed
+**radius** of you — which can leak ore through a wall. **Reachability ore reveal**
+(`reachability-ores`, GUI toggle, `/cadistchunk reach`) replaces that radius with
+true **reachability**: an ore stays visible only if it touches air you can
+*actually reach* — the connected cave/tunnel you're standing in. A vein a few
+blocks away behind solid rock stays hidden, the cave you're in stays fully lit,
+and it can't be peeked through a wall or with freecam (it's computed from your
+real body position, and unreachable space is never sent).
+
+A small, bounded flood-fill runs around each player on the main thread a few
+times a second (only when you move into new space); while it's warming up it
+falls back to `ore-reveal-radius`, so you never get a blank gap. Scanning is
+bounded to the real bubble and a vertical band, but on a large/busy server keep
+an eye on `/tps` after enabling. Off by default.
+
+> This is the foundation for the wider reachability work (hiding caves/bases you
+> can't reach, and camouflaging surface entrances) — shipping in stages.
+
 ## Modes (live-switchable)
 
 | Mode | Real bubble | Reveal | Savings |
@@ -84,6 +104,7 @@ safe). On any error the packet is passed through untouched.
 - `/cadistchunk mode <BALANCED|MAX_SAVINGS|GENEROUS>`
 - `/cadistchunk cave` / `ore` — toggle hiding
 - `/cadistchunk antibase` — toggle the Anti-Base Finder (aggressive base hiding)
+- `/cadistchunk reach` — toggle reachability ore reveal (see below)
 - `/cadistchunk reload`
 
 Permission `cadistchunkprocessing.bypass` makes a player receive raw chunks.

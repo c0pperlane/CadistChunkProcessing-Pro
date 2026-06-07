@@ -474,6 +474,8 @@ public final class ChunkProcessor {
                 case SURFACE_ONLY -> surfaceExposed(blocks, heightMap, idx, x, y, z, ySize);
                 case SURFACE_AND_NEAR -> surfaceExposed(blocks, heightMap, idx, x, y, z, ySize)
                         || (oreExposed(blocks, idx, x, y, z, ySize, border) && nearPlayer(view, x, y, z, minY));
+                case SURFACE_AND_REACHABLE -> surfaceExposed(blocks, heightMap, idx, x, y, z, ySize)
+                        || exposedToReachable(view, idx, x, y, z, ySize);
             };
             if (keep) continue;
 
@@ -498,6 +500,24 @@ public final class ChunkProcessor {
         if (!clf.isTransparent(blocks[nIdx])) return false;
         int ny = nIdx >> 8, nx = nIdx & 15, nz = (nIdx >> 4) & 15;
         return ny >= heightMap[(nz << 4) | nx];   // at/above its column's surface = open sky
+    }
+
+    /**
+     * Ore touches air the player can actually reach (a cell flagged in the
+     * reachability mask). The mask only marks reachable transparent cells, so a
+     * flagged neighbour is genuine open space connected to the player — no radius,
+     * no peeking through walls. Safe if the mask is missing/short.
+     */
+    private boolean exposedToReachable(OreView v, int idx, int x, int y, int z, int ySize) {
+        boolean[] m = v.reachable;
+        if (m == null || m.length < (ySize << 8)) return false;
+        if (x > 0          && m[idx - 1])   return true;
+        if (x < 15         && m[idx + 1])   return true;
+        if (z > 0          && m[idx - 16])  return true;
+        if (z < 15         && m[idx + 16])  return true;
+        if (y > 0          && m[idx - 256]) return true;
+        if (y < ySize - 1  && m[idx + 256]) return true;
+        return false;
     }
 
     /** Ore is within the reveal radius of the player (the cave they're standing in). */
