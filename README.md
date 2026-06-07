@@ -38,6 +38,32 @@ Buried-ore camouflage runs in every tier. As you move, chunks entering the real
 bubble are re-sent real (caves "open" before you arrive) and chunks leaving are
 re-hidden — no rejoin needed.
 
+## Anti-Base Finder (aggressive base hiding)
+
+A natural cave mouth reveals inward (the `entrance-shell-depth` ring) so it is
+never false-culled — but a player-dug entrance tunnel, ladder/water-lift shaft
+or hollowed-out room is *also* a "cave mouth", so by default it would reveal too
+and quietly betray a base to anyone scanning the surface or peeking through a
+wall. **Anti-Base Finder** closes that gap. With it on, in the hidden tiers:
+
+- **Man-made space never opens.** A connected pocket of cave space that touches
+  *any* player-signature block — the whole tunnel / shaft / room, not just the
+  part next to the block — is treated as a base and stays solid even when it
+  reaches a genuine opening. The shell reveal can no longer crack a base
+  entrance from a corner. Natural caves (bordered only by terrain) still reveal
+  exactly as before.
+- **Base materials read as rock.** Player-signature blocks *below the surface*
+  (ladders, rails, redstone, lamps/lanterns, doors, signs, building blocks,
+  mineral-storage blocks, …) are recoloured to the ghost rock, so nothing leaks
+  through a thin wall or a window.
+
+It is strictly sub-surface and "solidify, never void" like the rest of the
+engine: surfaces stay vanilla and the **REAL bubble is untouched**, so *your*
+base re-appears in full as you walk up to it. It is aggressive by design — a
+natural cave that a base tunnels into will also be hidden while far away — so it
+is **off by default**; enable it in the GUI, with `/cadistchunk antibase`, or via
+`anti-base-finder: true` in the config.
+
 PacketEvents (installed as its own plugin) is used to intercept `CHUNK_DATA`.
 The engine never touches the Bukkit API on the packet thread (LeafMC / Moonrise
 safe). On any error the packet is passed through untouched.
@@ -57,6 +83,7 @@ safe). On any error the packet is passed through untouched.
 - `/cadistchunk bar` — toggle a live bandwidth BossBar
 - `/cadistchunk mode <BALANCED|MAX_SAVINGS|GENEROUS>`
 - `/cadistchunk cave` / `ore` — toggle hiding
+- `/cadistchunk antibase` — toggle the Anti-Base Finder (aggressive base hiding)
 - `/cadistchunk reload`
 
 Permission `cadistchunkprocessing.bypass` makes a player receive raw chunks.

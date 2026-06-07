@@ -102,7 +102,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
-            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | reload", SUB);
+            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | antibase | reload", SUB);
             return true;
         }
         switch (args[0].toLowerCase()) {
@@ -154,6 +154,11 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                 config.setOreHiding(!config.oreHiding());
                 applyChanges();
                 send(sender, "Ore hiding " + (config.oreHiding() ? "enabled." : "disabled."), GREEN);
+            }
+            case "antibase" -> {
+                config.setAntiBaseFinder(!config.antiBaseFinder());
+                applyChanges();
+                send(sender, "Anti-Base Finder " + (config.antiBaseFinder() ? "enabled." : "disabled."), GREEN);
             }
             case "reload" -> {
                 config.reload();

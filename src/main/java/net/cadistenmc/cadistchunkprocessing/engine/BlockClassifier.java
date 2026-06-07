@@ -32,4 +32,15 @@ public interface BlockClassifier {
      * never collapsed. Conservative by design: when unsure, return false.
      */
     boolean isTerrain(int blockId);
+
+    /**
+     * True for a <em>player-signature</em> block — one that essentially never
+     * generates in undisturbed ground and so betrays a base: building materials
+     * (planks, cobblestone, bricks, glass, wool, concrete, metal blocks …) and
+     * functional blocks (ladders, rails, redstone, doors, signs, lamps, chests,
+     * furnaces, …). Used only by the anti-base-finder layer. MUST be false for
+     * natural terrain, ores and natural cave decoration. Defaults to {@code false}
+     * so classifiers that don't care about anti-base need not implement it.
+     */
+    default boolean isArtificial(int blockId) { return false; }
 }

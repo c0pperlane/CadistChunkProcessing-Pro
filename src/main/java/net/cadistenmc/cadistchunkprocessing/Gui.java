@@ -36,7 +36,7 @@ public final class Gui implements Listener {
     private static final TextColor SUB = TextColor.color(0xA6ADC8);
 
     private static final int CAVE = 10, ORE = 12, WORLD = 14, STATS = 16;
-    private static final int BLOCK_ENT = 11, CACHE = 15;
+    private static final int BLOCK_ENT = 11, CACHE = 15, ANTI_BASE = 13;
     private static final int REAL_R = 19, RENDER = 21, SHELL = 23, HOMO = 25;
     private static final int ROCK = 29, MODE = 31, HIDE_ALL = 28, ORE_RADIUS = 33;
     private static final int VCULL = 30, VMARGIN = 32;
@@ -75,6 +75,16 @@ public final class Gui implements Listener {
                 "Camouflage ores you cannot legitimately see."));
         inv.setItem(BLOCK_ENT, toggle(Material.CHEST, "Hide block entities (anti-xray)", c.hideBlockEntities(),
                 "Strip buried chests/spawners from hidden chunks so they can't be packet-xrayed."));
+        inv.setItem(ANTI_BASE, item(c.antiBaseFinder() ? Material.SCULK_SENSOR : Material.SCULK_SHRIEKER,
+                Component.text("Anti-Base Finder", c.antiBaseFinder() ? GREEN : RED),
+                List.of(line(c.antiBaseFinder() ? "Enabled" : "Disabled", c.antiBaseFinder() ? GREEN : RED),
+                        line("Aggressively hides buried bases.", SUB),
+                        line("Man-made tunnels, ladder/water-lift shafts and", SUB),
+                        line("rooms stay solid even at an opening, and base", SUB),
+                        line("blocks below ground (ladders, rails, lamps,", SUB),
+                        line("doors, building blocks) read as plain rock.", SUB),
+                        line("Natural caves still reveal; your base re-appears", SUB),
+                        line("up close. Click to toggle.", SUB))));
 
         boolean cache = c.chunkCache();
         inv.setItem(CACHE, item(cache ? Material.ENDER_CHEST : Material.CLOCK,
@@ -163,6 +173,7 @@ public final class Gui implements Listener {
             case CAVE -> c.setCaveHiding(!c.caveHiding());
             case ORE -> c.setOreHiding(!c.oreHiding());
             case BLOCK_ENT -> c.setHideBlockEntities(!c.hideBlockEntities());
+            case ANTI_BASE -> c.setAntiBaseFinder(!c.antiBaseFinder());
             case CACHE -> c.setChunkCache(!c.chunkCache());
             case VCULL -> c.setVerticalCulling(!c.verticalCulling());
             case VMARGIN -> c.setVerticalMargin(clamp(c.verticalMargin() + (left ? 8 : -8), 8, 128));
