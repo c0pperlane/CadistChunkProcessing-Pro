@@ -23,6 +23,11 @@
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>
+        <!-- PacketEvents is published here, not on papermc/central. -->
+        <repository>
+            <id>codemc</id>
+            <url>https://repo.codemc.io/repository/maven-releases/</url>
+        </repository>
     </repositories>
 
     <dependencies>
