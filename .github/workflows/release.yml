@@ -44,8 +44,8 @@ jobs:
             # Create and push the tag so the release is anchored to a real tag
             git config user.name  "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git tag "$TAG" -m "Release $TAG"
-            git push origin "$TAG"
+            git tag -f "$TAG" -m "Release $TAG"
+            git push -f origin "$TAG"
           else
             TAG="${GITHUB_REF_NAME}"           # e.g. v9.1.0
             VERSION="${TAG#v}"                 # strip leading v
@@ -54,7 +54,7 @@ jobs:
           echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
 
       - name: Build jar
-        run: mvn clean package -DskipTests --batch-mode -Drevision="${{ steps.meta.outputs.version }}"
+        run: mvn clean package -DskipTests --batch-mode
 
       - name: Locate jar
         id: jar
