@@ -149,7 +149,7 @@ public final class Gui implements Listener {
                         line("ground. Shows again up close so you can use it.", SUB),
                         line("Natural ravines/cave mouths are left alone.", SUB),
                         line("Click to toggle.", SUB))));
-        inv.setItem(SEALED, item(c.hideSealedCaves() ? Material.STONE_BRICKS : Material.CAVE_VINES,
+        inv.setItem(SEALED, item(c.hideSealedCaves() ? Material.STONE_BRICKS : Material.GLOW_BERRIES,
                 Component.text("Sealed-cave hiding", c.hideSealedCaves() ? GREEN : RED),
                 List.of(line(c.hideSealedCaves() ? "Enabled" : "Disabled", c.hideSealedCaves() ? GREEN : RED),
                         line("Solidify caves with NO entrance to the sky -", SUB),
