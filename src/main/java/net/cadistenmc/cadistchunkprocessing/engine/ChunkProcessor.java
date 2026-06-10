@@ -281,7 +281,8 @@ public final class ChunkProcessor {
         // cut too (extra anti-xray). Never writes air, so the no-void invariant
         // holds; the region re-reveals on descent via the vertical resend.
         if (verticalCutLocalY > 0) {
-            verticalCollapse(blocks, heightMap, ySize, minY, ghostHigh, ghostLow, verticalCutLocalY, r);
+            boolean[] vReach = (reachable != null && reachable.length >= total) ? reachable : null;
+            verticalCollapse(blocks, heightMap, ySize, minY, ghostHigh, ghostLow, verticalCutLocalY, vReach, r);
         }
 
         r.bytesAfter = estimateBytes(blocks, ySize);
@@ -721,10 +722,17 @@ public final class ChunkProcessor {
      * so far/lower terrain in the bubble simply has its deep caves hidden instead of
      * being sliced by a plane. Columns with no terrain are skipped entirely (never
      * slab over air or ocean). As the player descends, the player cut drops below
-     * the surface and reveals the column locally. Pure solidify — never void.
+     * the surface and reveals the column locally.
+     *
+     * <p>If a {@code reachable} mask is supplied, cells the player can reach are
+     * never solidified — so the connected cave/ravine you're standing in stays open
+     * all the way down to its floor (you can look from the top to the bottom of the
+     * shaft you're in), regardless of how small the margin is, while the solid rock
+     * around it still collapses. Pure solidify — never void.
      */
     private void verticalCollapse(int[] blocks, int[] heightMap, int ySize, int minY,
-                                  int ghostHigh, int ghostLow, int playerCutLocalY, Result r) {
+                                  int ghostHigh, int ghostLow, int playerCutLocalY,
+                                  boolean[] reachable, Result r) {
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
                 int col = (z << 4) | x;
@@ -734,6 +742,7 @@ public final class ChunkProcessor {
                 if (cut > ySize) cut = ySize;
                 for (int y = 0; y < cut; y++) {
                     int idx = (y << 8) | col;
+                    if (reachable != null && reachable[idx]) continue;   // the cave/ravine you're in -> keep
                     int g = (minY + y) < 0 ? ghostLow : ghostHigh;
                     if (blocks[idx] != g) {
                         blocks[idx] = g;

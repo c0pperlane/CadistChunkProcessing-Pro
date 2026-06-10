@@ -155,6 +155,11 @@ collapse-biomes: true
 #   terrain the open air over that terrain is left alone (no flat floating "cliff"
 #   slab) and lower terrain simply has its deep caves hidden. Columns with no
 #   terrain (open air / ocean) are skipped entirely.
+#   If a reachability feature is on (the scanner is running), vertical culling
+#   also NEVER solidifies air you can reach: the connected cave/ravine you're
+#   standing in stays open all the way down to its floor (look from the top of a
+#   shaft straight to the bottom), no matter how small the margin is, while the
+#   rock around it still collapses. So a small margin (e.g. 8) is safe to use.
 #   true  = big extra savings in the REAL tier (recommended)
 #   false = send full columns (old behavior)
 vertical-culling: true

@@ -418,6 +418,32 @@ class ChunkProcessorTest {
     }
 
     @Test
+    void verticalCull_keepsReachableRavineUnderRoof_downToFloor() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);            // solid 0..40 under an intact roof
+        // A vertical ravine carved under the roof: air column at (5,5) from y=5..25.
+        for (int y = 5; y <= 25; y++) out[idx(5, y, 5)] = AIR;
+        out[idx(10, 8, 10)] = AIR;                   // a SEPARATE pocket the player can't reach
+        int[] in = out.clone();
+
+        // Player is inside the ravine near its top; the connected shaft air is reachable.
+        boolean[] reach = new boolean[ySize << 8];
+        for (int y = 5; y <= 25; y++) reach[idx(5, y, 5)] = true;
+
+        // Flat cut at local y=16 (player ~24, margin 8). Column surface is 40 (intact roof),
+        // so the cut would normally solidify the ravine air below 16.
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, 16, false, reach, false, false, false);
+
+        for (int y = 5; y < 16; y++)
+            assertEquals(AIR, out[idx(5, y, 5)], "reachable ravine air below the cut must stay open at y=" + y);
+        assertEquals(STONE, out[idx(10, 8, 10)], "an unreachable pocket below the cut is still solidified");
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(out[i]))
+                assertTrue(CLF.isTransparent(in[i]), "vertical cull created void at idx " + i);
+    }
+
+    @Test
     void verticalCull_disabledByNegativeCut() {
         int ySize = 64;
         int[] out = flatWorld(ySize, 40);

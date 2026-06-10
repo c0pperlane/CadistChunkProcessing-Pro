@@ -165,7 +165,10 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
 
         OreView oreView = oreViewFor(tier, id, cx, cz, reachSnap, reachMask);
         int verticalCut = verticalCutFor(tier, id, meta.minY(), ySize);
-        boolean[] caveReach = (config.reachabilityCaves() || sealed) ? reachMask : null;
+        // Pass the reachable mask through whenever the scanner has one: cave hiding
+        // is still gated by its own flags inside the engine, but vertical culling
+        // uses it to keep the connected cave/ravine you're in open down to its floor.
+        boolean[] caveReach = reachMask;
         ChunkProcessor.Result res = processor.get().process(
                 buf, ySize, meta.minY(), tier, params, ores, oreView,
                 meta.ghostHigh(), meta.ghostLow(), seed, verticalCut, config.antiBaseFinder(),
