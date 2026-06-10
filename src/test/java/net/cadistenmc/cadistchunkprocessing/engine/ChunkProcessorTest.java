@@ -387,6 +387,37 @@ class ChunkProcessorTest {
     }
 
     @Test
+    void verticalCull_perColumnSurfaceClamp_noFloatingSlabOverLowerTerrain() {
+        int ySize = 64;
+        // Low half (x 0..7) surface=20; high half (x 8..15) surface=40.
+        int[] out = new int[ySize << 8];
+        for (int z = 0; z < 16; z++)
+            for (int x = 0; x < 16; x++) {
+                int surf = (x < 8) ? 20 : 40;
+                for (int y = 0; y <= surf; y++) out[idx(x, y, z)] = STONE;
+            }
+        out[idx(2, 10, 2)] = AIR;    // buried cave in the LOW terrain (below its surface)
+        out[idx(12, 10, 12)] = AIR;  // buried cave in the HIGH terrain, below the cut
+        out[idx(13, 35, 13)] = AIR;  // cave in the HIGH terrain, above the cut
+        int[] in = out.clone();
+
+        // Player elevated: flat cut at local y=30 — ABOVE the low surface (20),
+        // BELOW the high surface (40). The old flat cut would slab the open air
+        // over the low terrain (y 21..29); the per-column clamp must not.
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, 30);
+
+        for (int y = 21; y <= 30; y++)
+            assertEquals(AIR, out[idx(2, y, 2)], "open air above lower terrain must stay air (no floating slab) at y=" + y);
+        assertEquals(STONE, out[idx(2, 10, 2)], "buried cave in lower terrain is hidden (below its own surface)");
+        assertEquals(STONE, out[idx(12, 10, 12)], "high-terrain cave below the cut is hidden");
+        assertEquals(AIR, out[idx(13, 35, 13)], "high-terrain cave above the cut stays real");
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(out[i]))
+                assertTrue(CLF.isTransparent(in[i]), "vertical cull created void at idx " + i);
+    }
+
+    @Test
     void verticalCull_disabledByNegativeCut() {
         int ySize = 64;
         int[] out = flatWorld(ySize, 40);

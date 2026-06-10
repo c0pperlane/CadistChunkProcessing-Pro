@@ -281,7 +281,7 @@ public final class ChunkProcessor {
         // cut too (extra anti-xray). Never writes air, so the no-void invariant
         // holds; the region re-reveals on descent via the vertical resend.
         if (verticalCutLocalY > 0) {
-            verticalCollapse(blocks, ySize, minY, ghostHigh, ghostLow, verticalCutLocalY, r);
+            verticalCollapse(blocks, heightMap, ySize, minY, ghostHigh, ghostLow, verticalCutLocalY, r);
         }
 
         r.bytesAfter = estimateBytes(blocks, ySize);
@@ -711,22 +711,34 @@ public final class ChunkProcessor {
     }
 
     /**
-     * Solidify every block below {@code cutLocalY} to the world-correct ghost
-     * block — a flat horizontal cut (not surface-relative). Used for vertical
-     * culling in the REAL bubble so the deep column under a surface player isn't
-     * sent in full. Pure solidify: only ever overwrites with a solid block.
+     * Vertical culling, per column. Solidify each column from the bottom up to
+     * {@code min(playerCutLocalY, columnSurface)} — i.e. the flat player cut
+     * (playerY − margin) <em>clamped to that column's own surface</em>. Clamping is
+     * what stops a flat cliff: when the player stands higher than nearby terrain,
+     * the raw player cut sits above that terrain's surface, and an un-clamped cut
+     * would fill the open air with a floating stone slab. Clamped, a column is never
+     * solidified above its own surface (open air and the surface skin stay vanilla),
+     * so far/lower terrain in the bubble simply has its deep caves hidden instead of
+     * being sliced by a plane. Columns with no terrain are skipped entirely (never
+     * slab over air or ocean). As the player descends, the player cut drops below
+     * the surface and reveals the column locally. Pure solidify — never void.
      */
-    private void verticalCollapse(int[] blocks, int ySize, int minY,
-                                  int ghostHigh, int ghostLow, int cutLocalY, Result r) {
-        int cut = Math.min(cutLocalY, ySize);
-        for (int y = 0; y < cut; y++) {
-            int g = (minY + y) < 0 ? ghostLow : ghostHigh;
-            int base = y << 8;
-            for (int i = 0; i < 256; i++) {
-                int idx = base | i;
-                if (blocks[idx] != g) {
-                    blocks[idx] = g;
-                    r.blocksHomogenized++;
+    private void verticalCollapse(int[] blocks, int[] heightMap, int ySize, int minY,
+                                  int ghostHigh, int ghostLow, int playerCutLocalY, Result r) {
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                int col = (z << 4) | x;
+                int surface = heightMap[col];
+                if (surface < 0) continue;                 // no terrain -> never solidify open air
+                int cut = Math.min(playerCutLocalY, surface);
+                if (cut > ySize) cut = ySize;
+                for (int y = 0; y < cut; y++) {
+                    int idx = (y << 8) | col;
+                    int g = (minY + y) < 0 ? ghostLow : ghostHigh;
+                    if (blocks[idx] != g) {
+                        blocks[idx] = g;
+                        r.blocksHomogenized++;
+                    }
                 }
             }
         }

@@ -150,6 +150,11 @@ collapse-biomes: true
 # bubble). The margin + resend stay ahead of normal digging/falling speed, so
 # you never reach un-revealed solid; worst case under extreme fast descent is a
 # brief re-send catch-up, never void.
+#   The cut is applied PER COLUMN, clamped to each column's own surface: it is
+#   never raised above a column's surface, so when you stand higher than nearby
+#   terrain the open air over that terrain is left alone (no flat floating "cliff"
+#   slab) and lower terrain simply has its deep caves hidden. Columns with no
+#   terrain (open air / ocean) are skipped entirely.
 #   true  = big extra savings in the REAL tier (recommended)
 #   false = send full columns (old behavior)
 vertical-culling: true
