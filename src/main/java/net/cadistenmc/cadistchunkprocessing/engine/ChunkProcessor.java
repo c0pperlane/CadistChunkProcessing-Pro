@@ -173,6 +173,28 @@ public final class ChunkProcessor {
                           int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
                           boolean antiBaseFinder, boolean[] reachable, boolean reachabilityCaves,
                           boolean surfaceEntrances) {
+        return process(blocks, ySize, minY, tier, params, oreCamo, oreView, ghostHigh, ghostLow,
+                border, verticalCutLocalY, antiBaseFinder, reachable, reachabilityCaves,
+                surfaceEntrances, false);
+    }
+
+    /**
+     * As above, plus {@code hideSealedCaves}: REAL-tier sealed-cave hiding. With it
+     * on, every cave-air cell that has no air path to the open sky — an
+     * <em>entrance-less</em> pocket (a fully walled-off cavity or a sealed room) —
+     * is solidified, while caves that DO reach the surface (real, visible cave
+     * mouths) are left intact, so nothing is false-culled and no void is created.
+     * The cave/room the player is actually in is kept via the {@code reachable}
+     * mask, so a sealed base you're standing in (closed door) never solidifies
+     * around you. Seam-continuous across chunks via {@code border}. The gentle
+     * sibling of reachability cave hiding: it removes only what genuinely has no
+     * entrance, never open caves you merely aren't standing in.
+     */
+    public Result process(int[] blocks, int ySize, int minY,
+                          Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
+                          int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
+                          boolean antiBaseFinder, boolean[] reachable, boolean reachabilityCaves,
+                          boolean surfaceEntrances, boolean hideSealedCaves) {
         Result r = new Result();
         final int total = ySize << 8;
         ensureScratch(total);
@@ -199,11 +221,25 @@ public final class ChunkProcessor {
             }
             // DEEP: dist stays -1 everywhere -> nothing revealed -> all hidden.
             solidifyHidden(blocks, ySize, minY, ghostHigh, ghostLow, total, r);
-        } else if (reachabilityCaves && reachable != null && reachable.length >= total) {
-            // REAL tier: hide every cave the player can't reach (sealed bases,
-            // caves you aren't standing in) while keeping the one you're in real.
-            classifyCaveAir(blocks, heightMap, ySize, total);
-            solidifyUnreachable(blocks, ySize, minY, ghostHigh, ghostLow, total, reachable, r);
+        } else {
+            // REAL tier cave hiding. Two complementary policies, either/both:
+            //   reachabilityCaves — hide every cave the player can't reach (sealed
+            //       bases AND open caves you aren't standing in); aggressive.
+            //   hideSealedCaves   — the gentle option: hide only caves with no
+            //       entrance to the open sky, keeping open caves and the room you
+            //       are in (reachable). Removes only what genuinely has no way in.
+            boolean[] reach = (reachable != null && reachable.length >= total) ? reachable : null;
+            boolean reachOn = reachabilityCaves && reach != null;
+            if (reachOn || hideSealedCaves) {
+                classifyCaveAir(blocks, heightMap, ySize, total);
+                if (hideSealedCaves) {
+                    markSurfaceConnected(blocks, ySize, total, border);
+                    solidifySealed(blocks, minY, ghostHigh, ghostLow, total, reach, r);
+                }
+                if (reachOn) {
+                    solidifyUnreachable(blocks, ySize, minY, ghostHigh, ghostLow, total, reach, r);
+                }
+            }
         }
 
         if (oreCamo) {
@@ -476,6 +512,67 @@ public final class ChunkProcessor {
                 blocks[idx] = worldY < 0 ? ghostLow : ghostHigh;
                 r.blocksSolidified++;
             }
+        }
+    }
+
+    /**
+     * Flood cave air from genuine surface openings (this chunk's exterior/open-sky
+     * air plus neighbour openings via {@code border}) with no depth limit. After it
+     * runs, {@code dist[idx] >= 0} marks every cave-air cell that has an air path to
+     * the open sky; {@code dist[idx] < 0} marks an <em>entrance-less</em> (sealed)
+     * pocket. The mirror of {@link #markRevealedShell} but uncapped — used by REAL-
+     * tier sealed-cave hiding. Assumes {@code dist} is pre-filled to -1
+     * (classifyCaveAir does this) and ignores the anti-base taint mask.
+     */
+    private void markSurfaceConnected(int[] blocks, int ySize, int total, BorderSeed border) {
+        int tail = 0;
+        for (int idx = 0; idx < total; idx++) {
+            if (!caveAir[idx] || dist[idx] >= 0) continue;
+            int x = idx & 15, z = (idx >> 4) & 15, y = idx >> 8;
+            if (touchesOpening(blocks, idx, x, y, z, ySize, border)) {
+                dist[idx] = 0;
+                queue[tail++] = idx;
+            }
+        }
+        int head = 0;
+        while (head < tail) {
+            int idx = queue[head++];
+            int x = idx & 15, z = (idx >> 4) & 15, y = idx >> 8;
+            if (x > 0)         tail = relaxOpen(idx - 1,   tail);
+            if (x < 15)        tail = relaxOpen(idx + 1,   tail);
+            if (z > 0)         tail = relaxOpen(idx - 16,  tail);
+            if (z < 15)        tail = relaxOpen(idx + 16,  tail);
+            if (y > 0)         tail = relaxOpen(idx - 256, tail);
+            if (y < ySize - 1) tail = relaxOpen(idx + 256, tail);
+        }
+    }
+
+    /** Mark a cave-air neighbour surface-connected; returns the (grown) queue tail. */
+    private int relaxOpen(int n, int tail) {
+        if (caveAir[n] && dist[n] < 0) {
+            dist[n] = 0;
+            queue[tail++] = n;
+        }
+        return tail;
+    }
+
+    /**
+     * REAL-tier sealed-cave hiding: solidify every cave-air cell with no surface
+     * connection ({@code dist < 0}) that the player also can't reach. Keeps open
+     * caves (surface-connected) and the cave/room you're standing in (reachable),
+     * so it never false-culls a visible cave nor buries the player. Clears the
+     * solidified cells from {@code caveAir} so a following reachability pass doesn't
+     * double-count them. Pure solidify — only ever writes a solid block.
+     */
+    private void solidifySealed(int[] blocks, int minY, int ghostHigh, int ghostLow,
+                                int total, boolean[] reachable, Result r) {
+        for (int idx = 0; idx < total; idx++) {
+            if (!caveAir[idx] || dist[idx] >= 0) continue;       // surface-connected -> keep
+            if (reachable != null && reachable[idx]) continue;   // the cave you're in -> keep
+            int worldY = minY + (idx >> 8);
+            blocks[idx] = worldY < 0 ? ghostLow : ghostHigh;
+            caveAir[idx] = false;
+            r.blocksSolidified++;
         }
     }
 

@@ -88,6 +88,22 @@ reachability-ores: false
 #   Recommended together with cave-hiding + anti-base-finder. Off by default.
 reachability-caves: false
 
+# Sealed-cave hiding (the gentle sibling of reachability-caves). Instead of hiding
+# every cave you can't reach, this hides ONLY caves with no entrance to the open
+# sky - fully walled-off pockets and sealed rooms - even in the close-up real
+# bubble. Caves that genuinely reach the surface (real, visible cave mouths) are
+# left intact, so nothing visible is ever false-culled; and the cave/room you are
+# actually standing in is kept (so a sealed base with a closed door never
+# solidifies around you). The result: the swiss-cheese of enclosed cavities that
+# freecam/x-ray loves to reveal around you reads as solid rock, without the
+# aggressiveness (or surprise pop-in) of full reachability hiding.
+#   It shares the same bounded main-thread scanner as the other reachability
+#   features (needed so the room you're in is protected), and is seam-continuous
+#   across chunks. Pure solidify - never creates void; mining into a sealed pocket
+#   reveals it within a moment. A good companion to vertical-culling: it removes the
+#   sealed caves the vertical margin would otherwise leave floating. Off by default.
+hide-sealed-caves: false
+
 # Surface-entrance camouflage. A buried base is hidden, but its DOOR at the
 # surface (a trapdoor, ladder shaft, hatch or water-lift dropping into the ground)
 # is a dead giveaway from a distance. With this on, in the hidden tiers a column

@@ -102,6 +102,24 @@ hidden; a cave that's genuinely open and walk-into-able from where a viewer
 stands is real terrain and can't be hidden. Recommended together with
 cave-hiding + anti-base-finder. Off by default.
 
+### Sealed-cave hiding
+
+`reachability-caves` is aggressive — it hides *every* cave you can't reach, which
+can pop a genuinely-open cave out of view as you move. **Sealed-cave hiding**
+(`hide-sealed-caves`, GUI toggle, `/cadistchunk sealedcaves`) is the gentle
+sibling: in the close-up real bubble it solidifies only the caves that have **no
+entrance to the open sky** — fully walled-off pockets and sealed rooms — while
+leaving every cave that genuinely reaches the surface (real, visible mouths)
+untouched. So the swiss-cheese of enclosed cavities that freecam/x-ray reveals
+around you reads as solid rock, but nothing *visible* is ever false-culled.
+
+The cave/room you're actually standing in is kept (via the same reachability
+scanner, so a sealed base behind a closed door never solidifies around you), and
+it's seam-continuous across chunks. Pure solidify — never void; mining into a
+sealed pocket reveals it within a moment. It's the natural companion to vertical
+culling: it removes the sealed caves the vertical margin would otherwise leave
+floating above the cut. Off by default.
+
 ### Surface-entrance camouflage
 
 A buried base is hidden, but its **door at the surface** — a trapdoor, ladder
@@ -137,6 +155,7 @@ the entrance. Off by default.
 - `/cadistchunk antibase` — toggle the Anti-Base Finder (aggressive base hiding)
 - `/cadistchunk reach` — toggle reachability ore reveal (see below)
 - `/cadistchunk reachcaves` — toggle reachability cave/base hiding (see below)
+- `/cadistchunk sealedcaves` — toggle sealed-cave hiding (entrance-less caves; see below)
 - `/cadistchunk entrances` — toggle surface-entrance camouflage (see below)
 - `/cadistchunk reload`
 

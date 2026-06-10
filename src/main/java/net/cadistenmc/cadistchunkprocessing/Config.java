@@ -24,6 +24,7 @@ public final class Config {
     private volatile boolean antiBaseFinder = false;
     private volatile boolean reachabilityOres = false;
     private volatile boolean reachabilityCaves = false;
+    private volatile boolean hideSealedCaves = false;
     private volatile boolean surfaceEntrances = false;
     private volatile boolean chunkCache = true;
     private volatile boolean collapseBiomes = true;
@@ -55,6 +56,7 @@ public final class Config {
         this.antiBaseFinder = c.getBoolean("anti-base-finder", false);
         this.reachabilityOres = c.getBoolean("reachability-ores", false);
         this.reachabilityCaves = c.getBoolean("reachability-caves", false);
+        this.hideSealedCaves = c.getBoolean("hide-sealed-caves", false);
         this.surfaceEntrances = c.getBoolean("surface-entrances", false);
         this.chunkCache = c.getBoolean("chunk-cache", true);
         this.collapseBiomes = c.getBoolean("collapse-biomes", true);
@@ -115,9 +117,10 @@ public final class Config {
     public boolean antiBaseFinder() { return antiBaseFinder; }
     public boolean reachabilityOres() { return reachabilityOres; }
     public boolean reachabilityCaves() { return reachabilityCaves; }
+    public boolean hideSealedCaves() { return hideSealedCaves; }
     public boolean surfaceEntrances() { return surfaceEntrances; }
     /** Any reachability feature active -> the scanner needs to run. */
-    public boolean reachabilityActive() { return reachabilityOres || reachabilityCaves; }
+    public boolean reachabilityActive() { return reachabilityOres || reachabilityCaves || hideSealedCaves; }
     public boolean chunkCache() { return chunkCache; }
     public boolean collapseBiomes() { return collapseBiomes; }
     public boolean verticalCulling() { return verticalCulling; }
@@ -143,6 +146,7 @@ public final class Config {
     public void setAntiBaseFinder(boolean v) { set("anti-base-finder", v); }
     public void setReachabilityOres(boolean v) { set("reachability-ores", v); }
     public void setReachabilityCaves(boolean v) { set("reachability-caves", v); }
+    public void setHideSealedCaves(boolean v) { set("hide-sealed-caves", v); }
     public void setSurfaceEntrances(boolean v) { set("surface-entrances", v); }
     public void setChunkCache(boolean v) { set("chunk-cache", v); }
     public void setVerticalCulling(boolean v) { set("vertical-culling", v); }

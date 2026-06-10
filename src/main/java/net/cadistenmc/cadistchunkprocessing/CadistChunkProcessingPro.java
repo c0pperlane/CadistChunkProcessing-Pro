@@ -107,7 +107,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
-            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | antibase | reach | reachcaves | entrances | reload", SUB);
+            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | antibase | reach | reachcaves | sealedcaves | entrances | reload", SUB);
             return true;
         }
         switch (args[0].toLowerCase()) {
@@ -122,6 +122,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                 send(sender, "  anti-base=" + config.antiBaseFinder()
                         + "  reach-ores=" + config.reachabilityOres()
                         + "  reach-caves=" + config.reachabilityCaves()
+                        + "  sealed-caves=" + config.hideSealedCaves()
                         + "  entrances=" + config.surfaceEntrances()
                         + "  vertical-cull=" + config.verticalCulling(), SUB);
                 send(sender, String.format("  bandwidth saved: %.1f%%  (%s this session)",
@@ -179,6 +180,11 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                 config.setReachabilityCaves(!config.reachabilityCaves());
                 applyChanges();
                 send(sender, "Reachability cave hiding " + (config.reachabilityCaves() ? "enabled." : "disabled."), GREEN);
+            }
+            case "sealedcaves" -> {
+                config.setHideSealedCaves(!config.hideSealedCaves());
+                applyChanges();
+                send(sender, "Sealed-cave hiding " + (config.hideSealedCaves() ? "enabled." : "disabled."), GREEN);
             }
             case "entrances" -> {
                 config.setSurfaceEntrances(!config.surfaceEntrances());

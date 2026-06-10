@@ -644,6 +644,95 @@ class ChunkProcessorTest {
         assertEquals(LADDER, real[idx(8, 30, 8)], "REAL tier keeps your own entrance visible");
     }
 
+    // ---- sealed-cave hiding (REAL tier) ----
+
+    @Test
+    void sealedCaves_solidifiesEnclosed_keepsSurfaceConnected_keepsReachable_noVoid() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        // (1) a cave open to the sky: tunnel at y=30 with a shaft up at x=2.
+        for (int x = 2; x <= 8; x++) out[idx(x, 30, 8)] = AIR;
+        for (int y = 30; y < ySize; y++) out[idx(2, y, 8)] = AIR;     // the entrance shaft
+        // (2) a fully enclosed pocket with no entrance.
+        out[idx(12, 12, 12)] = AIR; out[idx(12, 12, 13)] = AIR;
+        // (3) a sealed room the player is standing in (reachable).
+        out[idx(5, 18, 4)] = AIR;
+        int[] in = out.clone();
+
+        boolean[] reach = new boolean[ySize << 8];
+        reach[idx(5, 18, 4)] = true;
+        // sealed-cave hiding on (last arg), reachabilityCaves off.
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, reach, false, false, true);
+
+        assertEquals(AIR, out[idx(5, 30, 8)], "an open cave (reaches the sky) must stay real");
+        assertEquals(AIR, out[idx(8, 30, 8)], "the far end of an open cave must stay real");
+        assertEquals(STONE, out[idx(12, 12, 12)], "an entrance-less pocket must be solidified");
+        assertEquals(STONE, out[idx(12, 12, 13)], "an entrance-less pocket must be solidified");
+        assertEquals(AIR, out[idx(5, 18, 4)], "the sealed room you're standing in must be kept");
+        // surface/sky untouched
+        for (int z = 0; z < 16; z++)
+            for (int x = 0; x < 16; x++)
+                for (int y = 40; y < ySize; y++)
+                    assertEquals(in[idx(x, y, z)], out[idx(x, y, z)], "surface/sky changed at " + x + "," + y + "," + z);
+        // never creates void
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(out[i]))
+                assertTrue(CLF.isTransparent(in[i]), "sealed-cave hiding created void at idx " + i);
+    }
+
+    @Test
+    void sealedCaves_revealViaNeighbourOpening() {
+        int ySize = 64;
+        // A tunnel along x=0..5 at y=20,z=8 with NO opening of its own (sealed in-chunk).
+        int[] base = flatWorld(ySize, 40);
+        for (int x = 0; x <= 5; x++) base[idx(x, 20, 8)] = AIR;
+
+        // Without neighbour info it's entrance-less -> solidified.
+        int[] closed = base.clone();
+        proc().process(closed, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, false, true);
+        assertEquals(STONE, closed[idx(0, 20, 8)], "a sealed cave with no opening must be solidified");
+
+        // With a west-neighbour opening it's surface-connected -> fully kept (no depth cap).
+        BorderSeed seed = new BorderSeed() {
+            @Override public boolean openingWest(int y, int z) { return y == 20 && z == 8; }
+            @Override public boolean openingEast(int y, int z) { return false; }
+            @Override public boolean openingNorth(int y, int x) { return false; }
+            @Override public boolean openingSouth(int y, int x) { return false; }
+        };
+        int[] open = base.clone();
+        proc().process(open, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, seed, -1, false, null, false, false, true);
+        assertEquals(AIR, open[idx(0, 20, 8)], "a cave open via a neighbour must stay real");
+        assertEquals(AIR, open[idx(5, 20, 8)], "the whole connected cave is kept (uncapped, unlike the shell)");
+    }
+
+    @Test
+    void sealedCaves_disabledLeavesRealIntact() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        out[idx(1, 10, 1)] = AIR;   // an enclosed pocket
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, false, false);
+        assertEquals(AIR, out[idx(1, 10, 1)], "disabled: REAL leaves caves intact");
+    }
+
+    @Test
+    void sealedCaves_overloadEquivalence_falseEqualsLegacy() {
+        // The 16-arg overload must equal the 17-arg overload with hideSealedCaves=false.
+        int ySize = 64;
+        int[] a = tunnelFixture(ySize);
+        int[] b = tunnelFixture(ySize);
+        a[idx(1, 10, 1)] = AIR;
+        b[idx(1, 10, 1)] = AIR;
+        proc().process(a, ySize, 0, Tier.SHELL, P, true, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true);
+        proc().process(b, ySize, 0, Tier.SHELL, P, true, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true, false);
+        assertArrayEquals(a, b, "the 16-arg overload must behave exactly like hideSealedCaves=false");
+    }
+
     @Test
     void antiBaseFinder_offByDefaultOverloadEquivalence() {
         // The 11-arg overload (no anti-base) must equal the 12-arg overload with false.

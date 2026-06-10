@@ -95,7 +95,8 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
 
         boolean caves = config.caveHiding();
         boolean ores = config.oreHiding();
-        if (!caves && !ores && !config.reachabilityCaves() && !config.surfaceEntrances()) return;
+        if (!caves && !ores && !config.reachabilityCaves() && !config.surfaceEntrances()
+                && !config.hideSealedCaves()) return;
 
         UUID worldId = tracker.worldUID(id);
         if (worldId == null) return;
@@ -146,24 +147,31 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
         int ySize = ColumnCodec.flatten(column, buf);
         if (ySize == 0) return;
 
-        BorderSeed seed = (tier == Tier.SHELL) ? borderCache.seedFor(worldId, cx, cz, ySize) : null;
-
         // Reachability mask for this chunk (REAL tier only): the air the player can
-        // actually reach. Used for ore reveal and/or cave hiding; null while warming
-        // up so both gracefully fall back.
+        // actually reach. Used for ore reveal, cave hiding and sealed-cave safety;
+        // null while warming up so all of them gracefully fall back.
         boolean reachSnap = tier == Tier.REAL && config.reachabilityActive()
                 && reachability.hasSnapshot(id, worldId, ySize);
         boolean[] reachMask = reachSnap ? reachability.maskFor(id, cx, cz) : null;
 
+        // Sealed-cave hiding needs a live snapshot so the room you're in (reachable)
+        // is never solidified around you; it stays off until the scan warms up.
+        boolean sealed = config.hideSealedCaves() && reachSnap;
+
+        // SHELL always seam-seeds; REAL needs the seed too when sealed-cave hiding is
+        // on, so a cave open via a neighbour isn't mistaken for entrance-less.
+        BorderSeed seed = (tier == Tier.SHELL || sealed)
+                ? borderCache.seedFor(worldId, cx, cz, ySize) : null;
+
         OreView oreView = oreViewFor(tier, id, cx, cz, reachSnap, reachMask);
         int verticalCut = verticalCutFor(tier, id, meta.minY(), ySize);
-        boolean[] caveReach = config.reachabilityCaves() ? reachMask : null;
+        boolean[] caveReach = (config.reachabilityCaves() || sealed) ? reachMask : null;
         ChunkProcessor.Result res = processor.get().process(
                 buf, ySize, meta.minY(), tier, params, ores, oreView,
                 meta.ghostHigh(), meta.ghostLow(), seed, verticalCut, config.antiBaseFinder(),
-                caveReach, config.reachabilityCaves(), config.surfaceEntrances());
+                caveReach, config.reachabilityCaves(), config.surfaceEntrances(), sealed);
 
-        if (caves) {
+        if (caves || config.hideSealedCaves()) {
             storeFaces(worldId, cx, cz, ySize, buf);
         }
 
