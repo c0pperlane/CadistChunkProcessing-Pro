@@ -39,7 +39,7 @@ public final class Gui implements Listener {
     private static final int BLOCK_ENT = 11, CACHE = 15, ANTI_BASE = 13, REACH = 9, REACH_CAVES = 17;
     private static final int REAL_R = 19, RENDER = 21, SHELL = 23, HOMO = 25;
     private static final int ROCK = 29, MODE = 31, HIDE_ALL = 28, ORE_RADIUS = 33;
-    private static final int VCULL = 30, VMARGIN = 32;
+    private static final int VCULL = 30, VMARGIN = 32, ENTRANCES = 34;
     private static final int P_BAL = 38, P_MAX = 40, P_GEN = 42;
     private static final int CLOSE = 49;
 
@@ -140,6 +140,15 @@ public final class Gui implements Listener {
         inv.setItem(VMARGIN, slider(Material.LADDER, "Vertical margin", c.verticalMargin(), "blocks",
                 "Blocks kept real below your feet before culling. Higher = safer for fast drops."));
 
+        inv.setItem(ENTRANCES, item(c.surfaceEntrances() ? Material.GRASS_BLOCK : Material.IRON_TRAPDOOR,
+                Component.text("Surface-entrance camouflage", c.surfaceEntrances() ? GREEN : RED),
+                List.of(line(c.surfaceEntrances() ? "Enabled" : "Disabled", c.surfaceEntrances() ? GREEN : RED),
+                        line("Hide small base entrances at the surface from", SUB),
+                        line("afar: a trapdoor/ladder shaft or water-lift in", SUB),
+                        line("a narrow pit is capped and blended into the", SUB),
+                        line("ground. Shows again up close so you can use it.", SUB),
+                        line("Natural ravines/cave mouths are left alone.", SUB),
+                        line("Click to toggle.", SUB))));
         inv.setItem(HIDE_ALL, toggle(Material.SCULK, "Paranoid anti-xray", c.hideAllOres(),
                 "ON: hide every ore. OFF: show surface veins + ores in the cave you're in."));
         inv.setItem(ORE_RADIUS, slider(Material.IRON_ORE, "Ore reveal radius", c.oreRevealRadius(), "blocks",
@@ -174,6 +183,7 @@ public final class Gui implements Listener {
         lore.add(line("Anti-base: " + (c.antiBaseFinder() ? "on" : "off")
                 + "   Reach ores: " + (c.reachabilityOres() ? "on" : "off")
                 + "   Reach caves: " + (c.reachabilityCaves() ? "on" : "off"), SUB));
+        lore.add(line("Surface entrances: " + (c.surfaceEntrances() ? "on" : "off"), SUB));
         return item(Material.BOOK, Component.text("Live statistics", YELLOW), lore);
     }
 
@@ -197,6 +207,7 @@ public final class Gui implements Listener {
             case ANTI_BASE -> c.setAntiBaseFinder(!c.antiBaseFinder());
             case REACH -> c.setReachabilityOres(!c.reachabilityOres());
             case REACH_CAVES -> c.setReachabilityCaves(!c.reachabilityCaves());
+            case ENTRANCES -> c.setSurfaceEntrances(!c.surfaceEntrances());
             case CACHE -> c.setChunkCache(!c.chunkCache());
             case VCULL -> c.setVerticalCulling(!c.verticalCulling());
             case VMARGIN -> c.setVerticalMargin(clamp(c.verticalMargin() + (left ? 8 : -8), 8, 128));

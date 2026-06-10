@@ -43,4 +43,11 @@ public interface BlockClassifier {
      * so classifiers that don't care about anti-base need not implement it.
      */
     default boolean isArtificial(int blockId) { return false; }
+
+    /**
+     * True for a flowing fluid (water / lava / bubble column). Used by the
+     * surface-entrance camouflage to recognise water-lift shafts. Defaults to
+     * {@code false}.
+     */
+    default boolean isFluid(int blockId) { return false; }
 }

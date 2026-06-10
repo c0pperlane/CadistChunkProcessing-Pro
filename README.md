@@ -102,7 +102,22 @@ hidden; a cave that's genuinely open and walk-into-able from where a viewer
 stands is real terrain and can't be hidden. Recommended together with
 cave-hiding + anti-base-finder. Off by default.
 
-> Remaining stage: camouflaging surface entrances (trapdoors/ladders/hatches).
+### Surface-entrance camouflage
+
+A buried base is hidden, but its **door at the surface** — a trapdoor, ladder
+shaft, hatch or water-lift dropping into the ground — still gives it away from a
+distance. `surface-entrances` (GUI toggle, `/cadistchunk entrances`) closes that:
+in the hidden tiers, a column that is a **narrow pit** (every neighbour's ground
+is higher — a 1–2 wide shaft, not a slope or a wide-open cavern) **and** holds a
+man-made block or fluid is capped up to the surrounding rim with the neighbour's
+own surface blocks, so from afar the ground reads as untouched. It reappears in
+the REAL bubble so you can use your own entrance.
+
+This is the single deliberate exception to "never touch the surface", kept narrow
+and artificial/fluid-gated so natural ravines and cave mouths are left alone, and
+pure-solidify so it never creates void. A base left **wide open to the sky** (a
+big sinkhole/open cavern) is surface terrain and can't be hidden this way — seal
+the entrance. Off by default.
 
 ## Modes (live-switchable)
 
@@ -122,6 +137,7 @@ cave-hiding + anti-base-finder. Off by default.
 - `/cadistchunk antibase` — toggle the Anti-Base Finder (aggressive base hiding)
 - `/cadistchunk reach` — toggle reachability ore reveal (see below)
 - `/cadistchunk reachcaves` — toggle reachability cave/base hiding (see below)
+- `/cadistchunk entrances` — toggle surface-entrance camouflage (see below)
 - `/cadistchunk reload`
 
 Permission `cadistchunkprocessing.bypass` makes a player receive raw chunks.

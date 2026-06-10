@@ -27,6 +27,7 @@ public final class RegistryBlockClassifier implements BlockClassifier {
     private final ConcurrentHashMap<Integer, Boolean> ore = new ConcurrentHashMap<>(128);
     private final ConcurrentHashMap<Integer, Boolean> terrain = new ConcurrentHashMap<>(256);
     private final ConcurrentHashMap<Integer, Boolean> artificial = new ConcurrentHashMap<>(512);
+    private final ConcurrentHashMap<Integer, Boolean> fluid = new ConcurrentHashMap<>(64);
 
     /** Extra ore name-substrings from config (e.g. modded ores), lower-cased. */
     private volatile String[] extraOres = new String[0];
@@ -62,6 +63,21 @@ public final class RegistryBlockClassifier implements BlockClassifier {
     public boolean isArtificial(int id) {
         if (id == 0) return false;   // air is never a base signature
         return artificial.computeIfAbsent(id, RegistryBlockClassifier::computeArtificial);
+    }
+
+    @Override
+    public boolean isFluid(int id) {
+        if (id == 0) return false;
+        return fluid.computeIfAbsent(id, RegistryBlockClassifier::computeFluid);
+    }
+
+    private static boolean computeFluid(int id) {
+        try {
+            String name = WrappedBlockState.getByGlobalId(id).getType().getName().toLowerCase();
+            return name.contains("water") || name.contains("lava") || name.contains("bubble_column");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static boolean computeTerrain(int id) {

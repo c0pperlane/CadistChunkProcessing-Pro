@@ -24,6 +24,7 @@ public final class Config {
     private volatile boolean antiBaseFinder = false;
     private volatile boolean reachabilityOres = false;
     private volatile boolean reachabilityCaves = false;
+    private volatile boolean surfaceEntrances = false;
     private volatile boolean chunkCache = true;
     private volatile boolean collapseBiomes = true;
     private volatile boolean verticalCulling = true;
@@ -54,6 +55,7 @@ public final class Config {
         this.antiBaseFinder = c.getBoolean("anti-base-finder", false);
         this.reachabilityOres = c.getBoolean("reachability-ores", false);
         this.reachabilityCaves = c.getBoolean("reachability-caves", false);
+        this.surfaceEntrances = c.getBoolean("surface-entrances", false);
         this.chunkCache = c.getBoolean("chunk-cache", true);
         this.collapseBiomes = c.getBoolean("collapse-biomes", true);
         this.verticalCulling = c.getBoolean("vertical-culling", true);
@@ -113,6 +115,7 @@ public final class Config {
     public boolean antiBaseFinder() { return antiBaseFinder; }
     public boolean reachabilityOres() { return reachabilityOres; }
     public boolean reachabilityCaves() { return reachabilityCaves; }
+    public boolean surfaceEntrances() { return surfaceEntrances; }
     /** Any reachability feature active -> the scanner needs to run. */
     public boolean reachabilityActive() { return reachabilityOres || reachabilityCaves; }
     public boolean chunkCache() { return chunkCache; }
@@ -140,6 +143,7 @@ public final class Config {
     public void setAntiBaseFinder(boolean v) { set("anti-base-finder", v); }
     public void setReachabilityOres(boolean v) { set("reachability-ores", v); }
     public void setReachabilityCaves(boolean v) { set("reachability-caves", v); }
+    public void setSurfaceEntrances(boolean v) { set("surface-entrances", v); }
     public void setChunkCache(boolean v) { set("chunk-cache", v); }
     public void setVerticalCulling(boolean v) { set("vertical-culling", v); }
     public void setVerticalMargin(int v) { set("vertical-margin", v); }

@@ -88,6 +88,21 @@ reachability-ores: false
 #   Recommended together with cave-hiding + anti-base-finder. Off by default.
 reachability-caves: false
 
+# Surface-entrance camouflage. A buried base is hidden, but its DOOR at the
+# surface (a trapdoor, ladder shaft, hatch or water-lift dropping into the ground)
+# is a dead giveaway from a distance. With this on, in the hidden tiers a column
+# that is a NARROW PIT (every neighbouring column's ground is higher — i.e. a 1-2
+# wide shaft, not a slope or a wide-open cavern) and that contains a man-made
+# block or fluid is capped up to the surrounding rim using the neighbour's own
+# surface blocks, so from afar the ground looks untouched. It reappears in the
+# REAL bubble so you can still use your own entrance.
+#   This is the one deliberate exception to "never touch the surface", kept narrow
+#   and artificial/fluid-gated so natural ravines and cave mouths are left alone.
+#   Pure solidify (only writes solid over transparent) so it never creates void.
+#   Note: a base left WIDE OPEN to the sky (a big sinkhole/open cavern) is surface
+#   terrain and can't be hidden this way - seal the entrance. Off by default.
+surface-entrances: false
+
 # Extra blocks to treat as ore (anti-xray), matched by name substring against
 # the block id. Useful for modded/datapack ores. Examples below (commented):
 extra-ores: []

@@ -152,6 +152,27 @@ public final class ChunkProcessor {
                           Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
                           int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
                           boolean antiBaseFinder, boolean[] reachable, boolean reachabilityCaves) {
+        return process(blocks, ySize, minY, tier, params, oreCamo, oreView, ghostHigh, ghostLow,
+                border, verticalCutLocalY, antiBaseFinder, reachable, reachabilityCaves, false);
+    }
+
+    /**
+     * As above, plus {@code surfaceEntrances}: in the hidden tiers (SHELL/DEEP),
+     * camouflage small artificial/water surface entrances — a trapdoor, ladder
+     * shaft, hatch or water-lift dropping into a base. A column that is a narrow
+     * pit (every neighbour's surface is higher) and contains a man-made block or
+     * fluid is capped up to the surrounding ground with the neighbour's own
+     * surface blocks, so from a distance the ground reads as untouched. It
+     * reappears in the REAL bubble so you can use your own door. The single
+     * deliberate exception to "never touch the surface" — kept narrow and
+     * artificial-gated so natural ravines / cave mouths are left alone. Pure
+     * solidify (only writes solid over transparent), so the no-void rule holds.
+     */
+    public Result process(int[] blocks, int ySize, int minY,
+                          Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
+                          int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
+                          boolean antiBaseFinder, boolean[] reachable, boolean reachabilityCaves,
+                          boolean surfaceEntrances) {
         Result r = new Result();
         final int total = ySize << 8;
         ensureScratch(total);
@@ -210,6 +231,13 @@ public final class ChunkProcessor {
         if (antiBaseFinder && tier == Tier.REAL && reachabilityCaves
                 && reachable != null && reachable.length >= total) {
             solidifyArtificialUnreachable(blocks, heightMap, ySize, minY, ghostHigh, ghostLow, reachable, r);
+        }
+
+        // Surface-entrance camouflage: cap small artificial/water entrance shafts
+        // in the hidden tiers so a distant viewer sees untouched ground. Only away
+        // from the player (SHELL/DEEP); the entrance shows in the REAL bubble.
+        if (surfaceEntrances && tier != Tier.REAL) {
+            camouflageSurfaceEntrances(blocks, heightMap, ySize, ghostHigh, r);
         }
 
         // Vertical culling: solidify everything below the player's depth margin.
@@ -468,6 +496,69 @@ public final class ChunkProcessor {
                     if (!clf.isArtificial(blocks[idx])) continue;
                     if (adjacentReachable(reachable, idx, x, y, z, ySize)) continue;
                     int g = (minY + y) < 0 ? ghostLow : ghostHigh;
+                    if (blocks[idx] != g) {
+                        blocks[idx] = g;
+                        r.blocksSolidified++;
+                    }
+                }
+            }
+        }
+    }
+
+    /** Deepest narrow entrance shaft we'll cap; beyond this it's likely a natural chasm. */
+    private static final int ENTRANCE_MAX_DEPTH = 96;
+
+    /**
+     * Cap small artificial/water surface entrances. A column qualifies when it is
+     * a <em>narrow pit</em> — every in-chunk orthogonal neighbour's surface is
+     * strictly higher (so it's a 1–2 wide shaft, not a slope or a wide open
+     * cavern) — and the pit holds a man-made block or fluid (so a natural hole is
+     * left alone). It's then filled from its own surface up to the lowest
+     * surrounding rim with that neighbour's surface blocks, blending the hole into
+     * the ground. Only ever writes solid over transparent, so no void is created;
+     * it re-reveals as REAL on approach.
+     */
+    private void camouflageSurfaceEntrances(int[] blocks, int[] heightMap, int ySize, int ghostHigh, Result r) {
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                int col = (z << 4) | x;
+                int ownS = heightMap[col];
+                if (ownS < 0) continue;
+
+                // Every in-chunk orthogonal neighbour must be strictly higher.
+                int minN = Integer.MAX_VALUE, refCol = -1, present = 0;
+                boolean pit = true;
+                int[][] nb = {{x - 1, z}, {x + 1, z}, {x, z - 1}, {x, z + 1}};
+                for (int[] n : nb) {
+                    int nx = n[0], nz = n[1];
+                    if (nx < 0 || nx > 15 || nz < 0 || nz > 15) continue;
+                    present++;
+                    int nh = heightMap[(nz << 4) | nx];
+                    if (nh <= ownS) { pit = false; break; }
+                    if (nh < minN) { minN = nh; refCol = (nz << 4) | nx; }
+                }
+                if (!pit || present < 2 || refCol < 0) continue;
+                int nS = minN;
+                if (nS - ownS > ENTRANCE_MAX_DEPTH) continue;
+
+                // The pit must contain a man-made block or fluid (an entrance, not a natural hole).
+                boolean entrance = false;
+                int top = Math.min(nS + 1, ySize - 1);
+                for (int y = ownS + 1; y <= top; y++) {
+                    int v = blocks[(y << 8) | col];
+                    if (clf.isArtificial(v) || clf.isFluid(v)) { entrance = true; break; }
+                }
+                if (!entrance) continue;
+
+                // Blend with the lowest-rim neighbour's own surface blocks.
+                int topBlock = blocks[(nS << 8) | refCol];
+                int belowBlock = (nS - 1 >= 0) ? blocks[((nS - 1) << 8) | refCol] : topBlock;
+                if (!clf.isTerrain(topBlock)) topBlock = ghostHigh;
+                if (!clf.isTerrain(belowBlock)) belowBlock = ghostHigh;
+
+                for (int y = ownS + 1; y <= nS; y++) {
+                    int idx = (y << 8) | col;
+                    int g = (y == nS) ? topBlock : belowBlock;
                     if (blocks[idx] != g) {
                         blocks[idx] = g;
                         r.blocksSolidified++;

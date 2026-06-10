@@ -95,7 +95,7 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
 
         boolean caves = config.caveHiding();
         boolean ores = config.oreHiding();
-        if (!caves && !ores && !config.reachabilityCaves()) return;
+        if (!caves && !ores && !config.reachabilityCaves() && !config.surfaceEntrances()) return;
 
         UUID worldId = tracker.worldUID(id);
         if (worldId == null) return;
@@ -161,7 +161,7 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
         ChunkProcessor.Result res = processor.get().process(
                 buf, ySize, meta.minY(), tier, params, ores, oreView,
                 meta.ghostHigh(), meta.ghostLow(), seed, verticalCut, config.antiBaseFinder(),
-                caveReach, config.reachabilityCaves());
+                caveReach, config.reachabilityCaves(), config.surfaceEntrances());
 
         if (caves) {
             storeFaces(worldId, cx, cz, ySize, buf);

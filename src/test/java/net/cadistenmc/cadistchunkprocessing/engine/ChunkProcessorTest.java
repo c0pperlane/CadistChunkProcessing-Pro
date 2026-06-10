@@ -13,7 +13,7 @@ class ChunkProcessorTest {
     // Synthetic block ids.
     static final int AIR = 0, STONE = 1, DEEPSLATE = 2, ORE = 3, WATER = 4, DIRT = 5, GLASS = 6;
     // Anti-base-finder fixtures: a solid man-made block and a transparent one (a ladder).
-    static final int BRICKS = 20, LADDER = 21;
+    static final int BRICKS = 20, LADDER = 21, GRASS = 7;
 
     static final BlockClassifier CLF = new BlockClassifier() {
         @Override public boolean isTransparent(int id) { return id == AIR || id == WATER || id == GLASS || id == LADDER; }
@@ -22,6 +22,7 @@ class ChunkProcessorTest {
             return id == STONE || id == DEEPSLATE || id == DIRT || id == 7 || id == 8 || id == 9 || id == 10;
         }
         @Override public boolean isArtificial(int id) { return id == BRICKS || id == LADDER; }
+        @Override public boolean isFluid(int id) { return id == WATER; }
     };
 
     static final ModeParams P = new ModeParams(4, 10, 4, 8, true, 2);
@@ -582,6 +583,65 @@ class ChunkProcessorTest {
         proc().process(warming, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
                 STONE, DEEPSLATE, null, -1, false, null, true);
         assertEquals(AIR, warming[idx(1, 10, 1)], "null mask (warming up): no cave hiding yet");
+    }
+
+    // ---- surface-entrance camouflage ----
+
+    /** Grass surface at {@code surface} over dirt/stone, full 16x16. */
+    private static int[] grassWorld(int ySize, int surface) {
+        int[] b = new int[ySize << 8];
+        for (int z = 0; z < 16; z++)
+            for (int x = 0; x < 16; x++) {
+                for (int y = 0; y < surface; y++) b[idx(x, y, z)] = (y >= surface - 3) ? DIRT : STONE;
+                b[idx(x, surface, z)] = GRASS;
+            }
+        return b;
+    }
+
+    @Test
+    void surfaceEntrance_capsLadderShaft_blendsToGround_noVoid() {
+        int ySize = 64, surface = 40;
+        int[] b = grassWorld(ySize, surface);
+        for (int y = 20; y <= surface; y++) b[idx(8, y, 8)] = AIR;     // a 1-wide shaft
+        for (int y = 21; y < surface; y++) b[idx(8, y, 8)] = LADDER;   // ladder inside
+        int[] in = b.clone();
+        proc().process(b, ySize, 0, Tier.DEEP, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true);
+        assertEquals(GRASS, b[idx(8, surface, 8)], "entrance capped with grass on top");
+        assertEquals(DIRT, b[idx(8, surface - 1, 8)], "below the cap blends to the neighbour's subsurface");
+        assertFalse(CLF.isTransparent(b[idx(8, 30, 8)]), "the shaft is no longer open");
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(b[i])) assertTrue(CLF.isTransparent(in[i]), "entrance camo created void at idx " + i);
+    }
+
+    @Test
+    void surfaceEntrance_capsWaterLift() {
+        int ySize = 64, surface = 40;
+        int[] b = grassWorld(ySize, surface);
+        for (int y = 22; y <= surface; y++) b[idx(3, y, 3)] = WATER;   // a water column to the surface
+        proc().process(b, ySize, 0, Tier.DEEP, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true);
+        assertEquals(GRASS, b[idx(3, surface, 3)], "water-lift mouth capped with grass");
+        assertFalse(CLF.isTransparent(b[idx(3, 30, 3)]), "the water column is hidden");
+    }
+
+    @Test
+    void surfaceEntrance_leavesPlainHoleAndRealTierAlone() {
+        int ySize = 64, surface = 40;
+        // A narrow hole with no man-made block / fluid -> not an entrance, left alone.
+        int[] plain = grassWorld(ySize, surface);
+        for (int y = 30; y <= surface; y++) plain[idx(5, y, 5)] = AIR;
+        proc().process(plain, ySize, 0, Tier.DEEP, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true);
+        assertEquals(AIR, plain[idx(5, 35, 5)], "a plain unmarked hole is left alone");
+
+        // REAL tier: the entrance stays visible (you're standing on it).
+        int[] real = grassWorld(ySize, surface);
+        for (int y = 20; y <= surface; y++) real[idx(8, y, 8)] = AIR;
+        for (int y = 21; y < surface; y++) real[idx(8, y, 8)] = LADDER;
+        proc().process(real, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true);
+        assertEquals(LADDER, real[idx(8, 30, 8)], "REAL tier keeps your own entrance visible");
     }
 
     @Test
