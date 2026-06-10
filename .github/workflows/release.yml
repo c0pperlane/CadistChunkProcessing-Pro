@@ -7,9 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. 9.1.0) — a tag v<version> will be created"
+        description: "Release version (e.g. 9.2.0) — a tag v<version> will be created"
         required: true
         type: string
+      changelog:
+        description: "Markdown changelog for the release body (optional)"
+        required: false
+        type: string
+        default: ""
       prerelease:
         description: "Mark as pre-release"
         required: false
@@ -75,6 +80,9 @@ jobs:
           body: |
             ## CadistChunkProcessing Pro ${{ steps.meta.outputs.tag }}
 
+            ${{ inputs.changelog }}
+
+            ---
             **Paper 1.21.11 · PacketEvents 2.12.1 · Java 21**
 
             Drop `${{ steps.jar.outputs.name }}` into your `plugins/` folder.
