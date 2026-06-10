@@ -60,6 +60,10 @@ public final class ReachabilityService {
     private boolean[] visited = new boolean[0];
     private int[] queue = new int[0];
 
+    // Per-scan player anchor + optional reveal-distance leash (squared, 0 = off).
+    private int cpx, cpy, cpz;
+    private long revealDistSq;
+
     public ReachabilityService(JavaPlugin plugin, Config config, RefreshScheduler scheduler) {
         this.plugin = plugin;
         this.config = config;
@@ -177,6 +181,13 @@ public final class ReachabilityService {
         ensureScratch(total);
         java.util.Arrays.fill(visited, 0, total, false);
 
+        // Reveal-distance leash: bound the flood to a sphere of this radius around
+        // the player (0 = unlimited). Limits how far the revealed/reachable area
+        // extends, so a viewer can't see the whole connected cave system around you.
+        int revealDistance = config.revealDistance();
+        cpx = px; cpy = py; cpz = pz;
+        revealDistSq = revealDistance > 0 ? (long) revealDistance * revealDistance : 0L;
+
         // Seed from the player's feet + head.
         int head = 0, tail = 0;
         for (int yy = py; yy <= py + 1 && yy <= yHi; yy++) {
@@ -229,7 +240,12 @@ public final class ReachabilityService {
     }
 
     private int relax(Map<Long, ChunkSnapshot> snaps, int nRel, int wx, int wy, int wz, int tail) {
-        if (!visited[nRel] && passableAt(snaps, wx, wy, wz)) {
+        if (visited[nRel]) return tail;
+        if (revealDistSq > 0) {                       // reveal-distance leash
+            long dx = wx - cpx, dy = wy - cpy, dz = wz - cpz;
+            if (dx * dx + dy * dy + dz * dz > revealDistSq) return tail;
+        }
+        if (passableAt(snaps, wx, wy, wz)) {
             visited[nRel] = true;
             queue[tail++] = nRel;
         }

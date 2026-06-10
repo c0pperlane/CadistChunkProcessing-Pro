@@ -32,6 +32,7 @@ public final class Config {
     private volatile int verticalMargin = 48;
     private volatile int verticalResendBlocks = 16;
     private volatile int oreRevealRadius = 16;
+    private volatile int revealDistance = 0;
     private volatile boolean debug = false;
     private volatile List<String> extraOres = List.of();
     private volatile int refreshPerTick = 6;
@@ -64,6 +65,7 @@ public final class Config {
         this.verticalMargin = Math.max(8, c.getInt("vertical-margin", 48));
         this.verticalResendBlocks = Math.max(4, c.getInt("vertical-resend-blocks", 16));
         this.oreRevealRadius = Math.max(0, c.getInt("ore-reveal-radius", 16));
+        this.revealDistance = Math.max(0, c.getInt("reveal-distance", 0));
         this.debug = c.getBoolean("debug", false);
 
         List<String> extra = c.getStringList("extra-ores");
@@ -128,6 +130,8 @@ public final class Config {
     public int verticalResendBlocks() { return verticalResendBlocks; }
     public List<String> extraOres() { return extraOres; }
     public int oreRevealRadius() { return oreRevealRadius; }
+    /** Cap (blocks, 3D) on how far reachability reveals around the player; 0 = unlimited. */
+    public int revealDistance() { return revealDistance; }
     public boolean debug() { return debug; }
     public int refreshPerTick() { return refreshPerTick; }
     public int joinRawSeconds() { return joinRawSeconds; }
@@ -142,6 +146,7 @@ public final class Config {
     public void setOreHiding(boolean v) { set("ore-hiding", v); }
     public void setHideAllOres(boolean v) { set("hide-all-ores", v); }
     public void setOreRevealRadius(int v) { set("ore-reveal-radius", v); }
+    public void setRevealDistance(int v) { set("reveal-distance", v); }
     public void setHideBlockEntities(boolean v) { set("hide-block-entities", v); }
     public void setAntiBaseFinder(boolean v) { set("anti-base-finder", v); }
     public void setReachabilityOres(boolean v) { set("reachability-ores", v); }

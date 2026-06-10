@@ -104,6 +104,21 @@ reachability-caves: false
 #   sealed caves the vertical margin would otherwise leave floating. Off by default.
 hide-sealed-caves: false
 
+# Reveal-distance leash (modifier on the reachability scanner). By default
+# reachability reveals the WHOLE connected cave/tunnel system you can reach - so
+# standing in or at the mouth of a big system, a viewer can see all of it. This
+# caps how far the revealed area extends: only air within this many blocks (3D,
+# straight-line) of you stays revealed; connected space beyond it is hidden and
+# re-reveals as you move closer. So freecam sees only a bubble around you, not the
+# whole system, while the cave you're actually in/near stays correct.
+#   0       = unlimited (reveal the entire connected system; original behavior)
+#   e.g. 32 = only reveal connected air within 32 blocks of you
+# Only does anything while a reachability feature is on (reachability-ores /
+# -caves or hide-sealed-caves - they run the scanner this shapes). It also bounds
+# how far down a shaft you can see (vertical culling keeps reachable air): keep it
+# >= how deep a ravine you want to see into. Off (0) by default.
+reveal-distance: 0
+
 # Surface-entrance camouflage. A buried base is hidden, but its DOOR at the
 # surface (a trapdoor, ladder shaft, hatch or water-lift dropping into the ground)
 # is a dead giveaway from a distance. With this on, in the hidden tiers a column

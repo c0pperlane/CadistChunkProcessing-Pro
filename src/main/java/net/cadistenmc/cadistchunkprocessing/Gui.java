@@ -37,7 +37,7 @@ public final class Gui implements Listener {
 
     private static final int CAVE = 10, ORE = 12, WORLD = 14, STATS = 16;
     private static final int BLOCK_ENT = 11, CACHE = 15, ANTI_BASE = 13, REACH = 9, REACH_CAVES = 17;
-    private static final int REAL_R = 19, RENDER = 21, SHELL = 23, HOMO = 25;
+    private static final int REAL_R = 19, RENDER = 21, SHELL = 23, HOMO = 25, REVEAL_DIST = 26;
     private static final int ROCK = 29, MODE = 31, HIDE_ALL = 28, ORE_RADIUS = 33;
     private static final int VCULL = 30, VMARGIN = 32, ENTRANCES = 34, SEALED = 35;
     private static final int P_BAL = 38, P_MAX = 40, P_GEN = 42;
@@ -128,6 +128,14 @@ public final class Gui implements Listener {
                 "How far a visible cave opening reveals inward."));
         inv.setItem(HOMO, slider(Material.STONE, "Homogenize below", p.homogenizeBelow(), "blocks",
                 "Deep sections this far under the surface collapse to one block."));
+        int rd = c.revealDistance();
+        inv.setItem(REVEAL_DIST, item(Material.LEAD,
+                Component.text("Reveal distance: " + (rd == 0 ? "unlimited" : rd + " blocks"), TEXT),
+                List.of(line("Leash on how far reachability reveals around you.", SUB),
+                        line("Caves/air beyond this (3D) are hidden even if", SUB),
+                        line("connected, and reveal as you approach. 0 = off", SUB),
+                        line("(reveal the whole connected system). Needs a", SUB),
+                        line("reachability feature on. Left +8 / Right -8", SUB))));
 
         inv.setItem(ROCK, toggle(Material.TUFF, "Rock collapse (max savings)", p.rockCollapse(),
                 "Deep tier merges all rock into the ghost block."));
@@ -194,6 +202,7 @@ public final class Gui implements Listener {
                 + "   Reach caves: " + (c.reachabilityCaves() ? "on" : "off"), SUB));
         lore.add(line("Sealed caves: " + (c.hideSealedCaves() ? "on" : "off")
                 + "   Surface entrances: " + (c.surfaceEntrances() ? "on" : "off"), SUB));
+        lore.add(line("Reveal distance: " + (c.revealDistance() == 0 ? "unlimited" : c.revealDistance() + " blocks"), SUB));
         return item(Material.BOOK, Component.text("Live statistics", YELLOW), lore);
     }
 
@@ -224,6 +233,7 @@ public final class Gui implements Listener {
             case VMARGIN -> c.setVerticalMargin(clamp(c.verticalMargin() + (left ? 8 : -8), 8, 128));
             case HIDE_ALL -> c.setHideAllOres(!c.hideAllOres());
             case ORE_RADIUS -> c.setOreRevealRadius(clamp(c.oreRevealRadius() + (left ? 2 : -2), 0, 64));
+            case REVEAL_DIST -> c.setRevealDistance(clamp(c.revealDistance() + (left ? 8 : -8), 0, 256));
             case WORLD -> c.toggleWorld(player.getWorld().getName());
             case ROCK -> c.setCurrentModeBool("rock-collapse", !c.params().rockCollapse());
             case MODE -> c.setMode(c.mode().next());

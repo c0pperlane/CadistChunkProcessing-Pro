@@ -120,6 +120,19 @@ sealed pocket reveals it within a moment. It's the natural companion to vertical
 culling: it removes the sealed caves the vertical margin would otherwise leave
 floating above the cut. Off by default.
 
+### Reveal-distance leash
+
+By default reachability reveals the *whole* connected cave system you can reach —
+so standing in or at the mouth of a big system, a viewer can still see all of it.
+**`reveal-distance`** (GUI slider) caps that: only connected air within N blocks
+(3-D, straight-line) of you stays revealed; anything further is hidden and
+re-reveals as you move closer. Freecam then sees only a bubble around you, not the
+whole system, while the cave you're actually in stays correct. It also bounds how
+far down a shaft you can see (vertical culling keeps reachable air), so set it at
+least as deep as the ravines you want to see into. `0` = unlimited (original
+behavior). Only active while a reachability feature is on (it shapes that
+scanner). This is the zero-state, no-pop-in alternative to fog-of-war.
+
 ### Surface-entrance camouflage
 
 A buried base is hidden, but its **door at the surface** — a trapdoor, ladder
@@ -167,7 +180,7 @@ Requires JDK 21. PacketEvents must be installed on the target server.
 
 ```bash
 mvn clean package
-# -> target/CadistChunkProcessing-Pro-9.2.3.jar
+# -> target/CadistChunkProcessing-Pro-9.2.4.jar
 ```
 
 `paper-api 1.21.11` and `packetevents-spigot 2.12.1` are `provided` (not shaded).
