@@ -22,12 +22,17 @@ public final class Config {
     private volatile boolean hideAllOres = false;
     private volatile boolean hideBlockEntities = true;
     private volatile boolean antiBaseFinder = false;
+    private volatile boolean reachabilityOres = false;
+    private volatile boolean reachabilityCaves = false;
+    private volatile boolean hideSealedCaves = false;
+    private volatile boolean surfaceEntrances = false;
     private volatile boolean chunkCache = true;
     private volatile boolean collapseBiomes = true;
     private volatile boolean verticalCulling = true;
     private volatile int verticalMargin = 48;
     private volatile int verticalResendBlocks = 16;
     private volatile int oreRevealRadius = 16;
+    private volatile int revealDistance = 0;
     private volatile boolean debug = false;
     private volatile List<String> extraOres = List.of();
     private volatile int refreshPerTick = 6;
@@ -50,12 +55,17 @@ public final class Config {
         this.hideAllOres = c.getBoolean("hide-all-ores", false);
         this.hideBlockEntities = c.getBoolean("hide-block-entities", true);
         this.antiBaseFinder = c.getBoolean("anti-base-finder", false);
+        this.reachabilityOres = c.getBoolean("reachability-ores", false);
+        this.reachabilityCaves = c.getBoolean("reachability-caves", false);
+        this.hideSealedCaves = c.getBoolean("hide-sealed-caves", false);
+        this.surfaceEntrances = c.getBoolean("surface-entrances", false);
         this.chunkCache = c.getBoolean("chunk-cache", true);
         this.collapseBiomes = c.getBoolean("collapse-biomes", true);
         this.verticalCulling = c.getBoolean("vertical-culling", true);
         this.verticalMargin = Math.max(8, c.getInt("vertical-margin", 48));
         this.verticalResendBlocks = Math.max(4, c.getInt("vertical-resend-blocks", 16));
         this.oreRevealRadius = Math.max(0, c.getInt("ore-reveal-radius", 16));
+        this.revealDistance = Math.max(0, c.getInt("reveal-distance", 0));
         this.debug = c.getBoolean("debug", false);
 
         List<String> extra = c.getStringList("extra-ores");
@@ -107,6 +117,12 @@ public final class Config {
     public boolean hideAllOres() { return hideAllOres; }
     public boolean hideBlockEntities() { return hideBlockEntities; }
     public boolean antiBaseFinder() { return antiBaseFinder; }
+    public boolean reachabilityOres() { return reachabilityOres; }
+    public boolean reachabilityCaves() { return reachabilityCaves; }
+    public boolean hideSealedCaves() { return hideSealedCaves; }
+    public boolean surfaceEntrances() { return surfaceEntrances; }
+    /** Any reachability feature active -> the scanner needs to run. */
+    public boolean reachabilityActive() { return reachabilityOres || reachabilityCaves || hideSealedCaves; }
     public boolean chunkCache() { return chunkCache; }
     public boolean collapseBiomes() { return collapseBiomes; }
     public boolean verticalCulling() { return verticalCulling; }
@@ -114,6 +130,8 @@ public final class Config {
     public int verticalResendBlocks() { return verticalResendBlocks; }
     public List<String> extraOres() { return extraOres; }
     public int oreRevealRadius() { return oreRevealRadius; }
+    /** Cap (blocks, 3D) on how far reachability reveals around the player; 0 = unlimited. */
+    public int revealDistance() { return revealDistance; }
     public boolean debug() { return debug; }
     public int refreshPerTick() { return refreshPerTick; }
     public int joinRawSeconds() { return joinRawSeconds; }
@@ -128,8 +146,13 @@ public final class Config {
     public void setOreHiding(boolean v) { set("ore-hiding", v); }
     public void setHideAllOres(boolean v) { set("hide-all-ores", v); }
     public void setOreRevealRadius(int v) { set("ore-reveal-radius", v); }
+    public void setRevealDistance(int v) { set("reveal-distance", v); }
     public void setHideBlockEntities(boolean v) { set("hide-block-entities", v); }
     public void setAntiBaseFinder(boolean v) { set("anti-base-finder", v); }
+    public void setReachabilityOres(boolean v) { set("reachability-ores", v); }
+    public void setReachabilityCaves(boolean v) { set("reachability-caves", v); }
+    public void setHideSealedCaves(boolean v) { set("hide-sealed-caves", v); }
+    public void setSurfaceEntrances(boolean v) { set("surface-entrances", v); }
     public void setChunkCache(boolean v) { set("chunk-cache", v); }
     public void setVerticalCulling(boolean v) { set("vertical-culling", v); }
     public void setVerticalMargin(int v) { set("vertical-margin", v); }

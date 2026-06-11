@@ -13,7 +13,7 @@ class ChunkProcessorTest {
     // Synthetic block ids.
     static final int AIR = 0, STONE = 1, DEEPSLATE = 2, ORE = 3, WATER = 4, DIRT = 5, GLASS = 6;
     // Anti-base-finder fixtures: a solid man-made block and a transparent one (a ladder).
-    static final int BRICKS = 20, LADDER = 21;
+    static final int BRICKS = 20, LADDER = 21, GRASS = 7;
 
     static final BlockClassifier CLF = new BlockClassifier() {
         @Override public boolean isTransparent(int id) { return id == AIR || id == WATER || id == GLASS || id == LADDER; }
@@ -22,6 +22,7 @@ class ChunkProcessorTest {
             return id == STONE || id == DEEPSLATE || id == DIRT || id == 7 || id == 8 || id == 9 || id == 10;
         }
         @Override public boolean isArtificial(int id) { return id == BRICKS || id == LADDER; }
+        @Override public boolean isFluid(int id) { return id == WATER; }
     };
 
     static final ModeParams P = new ModeParams(4, 10, 4, 8, true, 2);
@@ -386,6 +387,63 @@ class ChunkProcessorTest {
     }
 
     @Test
+    void verticalCull_perColumnSurfaceClamp_noFloatingSlabOverLowerTerrain() {
+        int ySize = 64;
+        // Low half (x 0..7) surface=20; high half (x 8..15) surface=40.
+        int[] out = new int[ySize << 8];
+        for (int z = 0; z < 16; z++)
+            for (int x = 0; x < 16; x++) {
+                int surf = (x < 8) ? 20 : 40;
+                for (int y = 0; y <= surf; y++) out[idx(x, y, z)] = STONE;
+            }
+        out[idx(2, 10, 2)] = AIR;    // buried cave in the LOW terrain (below its surface)
+        out[idx(12, 10, 12)] = AIR;  // buried cave in the HIGH terrain, below the cut
+        out[idx(13, 35, 13)] = AIR;  // cave in the HIGH terrain, above the cut
+        int[] in = out.clone();
+
+        // Player elevated: flat cut at local y=30 — ABOVE the low surface (20),
+        // BELOW the high surface (40). The old flat cut would slab the open air
+        // over the low terrain (y 21..29); the per-column clamp must not.
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, 30);
+
+        for (int y = 21; y <= 30; y++)
+            assertEquals(AIR, out[idx(2, y, 2)], "open air above lower terrain must stay air (no floating slab) at y=" + y);
+        assertEquals(STONE, out[idx(2, 10, 2)], "buried cave in lower terrain is hidden (below its own surface)");
+        assertEquals(STONE, out[idx(12, 10, 12)], "high-terrain cave below the cut is hidden");
+        assertEquals(AIR, out[idx(13, 35, 13)], "high-terrain cave above the cut stays real");
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(out[i]))
+                assertTrue(CLF.isTransparent(in[i]), "vertical cull created void at idx " + i);
+    }
+
+    @Test
+    void verticalCull_keepsReachableRavineUnderRoof_downToFloor() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);            // solid 0..40 under an intact roof
+        // A vertical ravine carved under the roof: air column at (5,5) from y=5..25.
+        for (int y = 5; y <= 25; y++) out[idx(5, y, 5)] = AIR;
+        out[idx(10, 8, 10)] = AIR;                   // a SEPARATE pocket the player can't reach
+        int[] in = out.clone();
+
+        // Player is inside the ravine near its top; the connected shaft air is reachable.
+        boolean[] reach = new boolean[ySize << 8];
+        for (int y = 5; y <= 25; y++) reach[idx(5, y, 5)] = true;
+
+        // Flat cut at local y=16 (player ~24, margin 8). Column surface is 40 (intact roof),
+        // so the cut would normally solidify the ravine air below 16.
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, 16, false, reach, false, false, false);
+
+        for (int y = 5; y < 16; y++)
+            assertEquals(AIR, out[idx(5, y, 5)], "reachable ravine air below the cut must stay open at y=" + y);
+        assertEquals(STONE, out[idx(10, 8, 10)], "an unreachable pocket below the cut is still solidified");
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(out[i]))
+                assertTrue(CLF.isTransparent(in[i]), "vertical cull created void at idx " + i);
+    }
+
+    @Test
     void verticalCull_disabledByNegativeCut() {
         int ySize = 64;
         int[] out = flatWorld(ySize, 40);
@@ -488,6 +546,248 @@ class ChunkProcessorTest {
                 STONE, DEEPSLATE, null, -1, true);
         assertArrayEquals(in, out, "anti-base must not touch the REAL bubble");
         assertFalse(r.modified);
+    }
+
+    // ---- reachability ore reveal ----
+
+    @Test
+    void reachabilityOre_keepsReachableCave_hidesSealed_keepsSurface() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        out[idx(8, 30, 8)] = AIR;  out[idx(9, 30, 8)] = ORE;   // ore in the cave the player can reach
+        out[idx(1, 10, 1)] = AIR;  out[idx(2, 10, 1)] = ORE;   // ore in a sealed (unreachable) cave
+        out[idx(5, 40, 5)] = ORE;                              // surface-exposed vein
+
+        boolean[] reach = new boolean[ySize << 8];
+        reach[idx(8, 30, 8)] = true;                            // only the player's cave is reachable
+        OreView v = OreView.surfaceAndReachable(reach);
+        proc().process(out, ySize, 0, Tier.REAL, P, true, v, STONE, DEEPSLATE, null, -1, false);
+
+        assertEquals(ORE, out[idx(9, 30, 8)], "ore in the reachable cave must stay visible");
+        assertEquals(STONE, out[idx(2, 10, 1)], "ore in a sealed cave must be hidden (no peeking through walls)");
+        assertEquals(ORE, out[idx(5, 40, 5)], "surface-exposed vein must stay visible");
+    }
+
+    @Test
+    void reachabilityOre_nullMaskHidesAllButSurface() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        out[idx(8, 30, 8)] = AIR;  out[idx(9, 30, 8)] = ORE;
+        out[idx(5, 40, 5)] = ORE;                              // surface-exposed
+        proc().process(out, ySize, 0, Tier.REAL, P, true, OreView.surfaceAndReachable(null),
+                STONE, DEEPSLATE, null, -1, false);
+        assertEquals(STONE, out[idx(9, 30, 8)], "with no mask, non-surface ore is hidden");
+        assertEquals(ORE, out[idx(5, 40, 5)], "with no mask, surface ore is still kept");
+    }
+
+    // ---- reachability cave hiding (REAL tier) ----
+
+    @Test
+    void reachabilityCaves_keepsReachable_solidifiesSealed_keepsSurface_noVoid() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        out[idx(8, 30, 8)] = AIR; out[idx(8, 30, 9)] = AIR;   // the cave the player is in
+        out[idx(1, 10, 1)] = AIR; out[idx(2, 10, 1)] = AIR;   // a sealed cave elsewhere
+        int[] in = out.clone();
+
+        boolean[] reach = new boolean[ySize << 8];
+        reach[idx(8, 30, 8)] = true; reach[idx(8, 30, 9)] = true;
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, reach, true);
+
+        assertEquals(AIR, out[idx(8, 30, 8)], "the reachable cave must stay real");
+        assertEquals(AIR, out[idx(8, 30, 9)], "the reachable cave must stay real");
+        assertEquals(STONE, out[idx(1, 10, 1)], "a cave you can't reach must be solidified, even in REAL");
+        assertEquals(STONE, out[idx(2, 10, 1)], "a cave you can't reach must be solidified, even in REAL");
+        // surface/sky untouched
+        for (int z = 0; z < 16; z++)
+            for (int x = 0; x < 16; x++)
+                for (int y = 40; y < ySize; y++)
+                    assertEquals(in[idx(x, y, z)], out[idx(x, y, z)], "surface/sky changed at " + x + "," + y + "," + z);
+        // never creates void
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(out[i]))
+                assertTrue(CLF.isTransparent(in[i]), "reachability caves created void at idx " + i);
+    }
+
+    @Test
+    void reachabilityCaves_scrubsUnreachableBaseWalls_keepsWallsByYourCave() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        out[idx(8, 30, 8)] = AIR;                  // the cave the player is in
+        out[idx(7, 30, 8)] = BRICKS;               // a wall touching the reachable cave
+        out[idx(3, 12, 3)] = BRICKS;               // an enclosed base wall you can't reach
+        boolean[] reach = new boolean[ySize << 8];
+        reach[idx(8, 30, 8)] = true;
+        // anti-base ON so enclosed man-made blocks are scrubbed
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, true, reach, true);
+        assertEquals(BRICKS, out[idx(7, 30, 8)], "a wall touching the cave you're in stays real");
+        assertEquals(STONE, out[idx(3, 12, 3)], "an enclosed unreachable base wall is scrubbed");
+    }
+
+    @Test
+    void reachabilityCaves_disabledOrNullMaskLeavesRealIntact() {
+        int ySize = 64;
+        int[] off = flatWorld(ySize, 40);
+        off[idx(1, 10, 1)] = AIR;
+        proc().process(off, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false);
+        assertEquals(AIR, off[idx(1, 10, 1)], "disabled: REAL leaves caves intact");
+
+        int[] warming = flatWorld(ySize, 40);
+        warming[idx(1, 10, 1)] = AIR;
+        proc().process(warming, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, true);
+        assertEquals(AIR, warming[idx(1, 10, 1)], "null mask (warming up): no cave hiding yet");
+    }
+
+    // ---- surface-entrance camouflage ----
+
+    /** Grass surface at {@code surface} over dirt/stone, full 16x16. */
+    private static int[] grassWorld(int ySize, int surface) {
+        int[] b = new int[ySize << 8];
+        for (int z = 0; z < 16; z++)
+            for (int x = 0; x < 16; x++) {
+                for (int y = 0; y < surface; y++) b[idx(x, y, z)] = (y >= surface - 3) ? DIRT : STONE;
+                b[idx(x, surface, z)] = GRASS;
+            }
+        return b;
+    }
+
+    @Test
+    void surfaceEntrance_capsLadderShaft_blendsToGround_noVoid() {
+        int ySize = 64, surface = 40;
+        int[] b = grassWorld(ySize, surface);
+        for (int y = 20; y <= surface; y++) b[idx(8, y, 8)] = AIR;     // a 1-wide shaft
+        for (int y = 21; y < surface; y++) b[idx(8, y, 8)] = LADDER;   // ladder inside
+        int[] in = b.clone();
+        proc().process(b, ySize, 0, Tier.DEEP, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true);
+        assertEquals(GRASS, b[idx(8, surface, 8)], "entrance capped with grass on top");
+        assertEquals(DIRT, b[idx(8, surface - 1, 8)], "below the cap blends to the neighbour's subsurface");
+        assertFalse(CLF.isTransparent(b[idx(8, 30, 8)]), "the shaft is no longer open");
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(b[i])) assertTrue(CLF.isTransparent(in[i]), "entrance camo created void at idx " + i);
+    }
+
+    @Test
+    void surfaceEntrance_capsWaterLift() {
+        int ySize = 64, surface = 40;
+        int[] b = grassWorld(ySize, surface);
+        for (int y = 22; y <= surface; y++) b[idx(3, y, 3)] = WATER;   // a water column to the surface
+        proc().process(b, ySize, 0, Tier.DEEP, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true);
+        assertEquals(GRASS, b[idx(3, surface, 3)], "water-lift mouth capped with grass");
+        assertFalse(CLF.isTransparent(b[idx(3, 30, 3)]), "the water column is hidden");
+    }
+
+    @Test
+    void surfaceEntrance_leavesPlainHoleAndRealTierAlone() {
+        int ySize = 64, surface = 40;
+        // A narrow hole with no man-made block / fluid -> not an entrance, left alone.
+        int[] plain = grassWorld(ySize, surface);
+        for (int y = 30; y <= surface; y++) plain[idx(5, y, 5)] = AIR;
+        proc().process(plain, ySize, 0, Tier.DEEP, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true);
+        assertEquals(AIR, plain[idx(5, 35, 5)], "a plain unmarked hole is left alone");
+
+        // REAL tier: the entrance stays visible (you're standing on it).
+        int[] real = grassWorld(ySize, surface);
+        for (int y = 20; y <= surface; y++) real[idx(8, y, 8)] = AIR;
+        for (int y = 21; y < surface; y++) real[idx(8, y, 8)] = LADDER;
+        proc().process(real, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true);
+        assertEquals(LADDER, real[idx(8, 30, 8)], "REAL tier keeps your own entrance visible");
+    }
+
+    // ---- sealed-cave hiding (REAL tier) ----
+
+    @Test
+    void sealedCaves_solidifiesEnclosed_keepsSurfaceConnected_keepsReachable_noVoid() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        // (1) a cave open to the sky: tunnel at y=30 with a shaft up at x=2.
+        for (int x = 2; x <= 8; x++) out[idx(x, 30, 8)] = AIR;
+        for (int y = 30; y < ySize; y++) out[idx(2, y, 8)] = AIR;     // the entrance shaft
+        // (2) a fully enclosed pocket with no entrance.
+        out[idx(12, 12, 12)] = AIR; out[idx(12, 12, 13)] = AIR;
+        // (3) a sealed room the player is standing in (reachable).
+        out[idx(5, 18, 4)] = AIR;
+        int[] in = out.clone();
+
+        boolean[] reach = new boolean[ySize << 8];
+        reach[idx(5, 18, 4)] = true;
+        // sealed-cave hiding on (last arg), reachabilityCaves off.
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, reach, false, false, true);
+
+        assertEquals(AIR, out[idx(5, 30, 8)], "an open cave (reaches the sky) must stay real");
+        assertEquals(AIR, out[idx(8, 30, 8)], "the far end of an open cave must stay real");
+        assertEquals(STONE, out[idx(12, 12, 12)], "an entrance-less pocket must be solidified");
+        assertEquals(STONE, out[idx(12, 12, 13)], "an entrance-less pocket must be solidified");
+        assertEquals(AIR, out[idx(5, 18, 4)], "the sealed room you're standing in must be kept");
+        // surface/sky untouched
+        for (int z = 0; z < 16; z++)
+            for (int x = 0; x < 16; x++)
+                for (int y = 40; y < ySize; y++)
+                    assertEquals(in[idx(x, y, z)], out[idx(x, y, z)], "surface/sky changed at " + x + "," + y + "," + z);
+        // never creates void
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(out[i]))
+                assertTrue(CLF.isTransparent(in[i]), "sealed-cave hiding created void at idx " + i);
+    }
+
+    @Test
+    void sealedCaves_revealViaNeighbourOpening() {
+        int ySize = 64;
+        // A tunnel along x=0..5 at y=20,z=8 with NO opening of its own (sealed in-chunk).
+        int[] base = flatWorld(ySize, 40);
+        for (int x = 0; x <= 5; x++) base[idx(x, 20, 8)] = AIR;
+
+        // Without neighbour info it's entrance-less -> solidified.
+        int[] closed = base.clone();
+        proc().process(closed, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, false, true);
+        assertEquals(STONE, closed[idx(0, 20, 8)], "a sealed cave with no opening must be solidified");
+
+        // With a west-neighbour opening it's surface-connected -> fully kept (no depth cap).
+        BorderSeed seed = new BorderSeed() {
+            @Override public boolean openingWest(int y, int z) { return y == 20 && z == 8; }
+            @Override public boolean openingEast(int y, int z) { return false; }
+            @Override public boolean openingNorth(int y, int x) { return false; }
+            @Override public boolean openingSouth(int y, int x) { return false; }
+        };
+        int[] open = base.clone();
+        proc().process(open, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, seed, -1, false, null, false, false, true);
+        assertEquals(AIR, open[idx(0, 20, 8)], "a cave open via a neighbour must stay real");
+        assertEquals(AIR, open[idx(5, 20, 8)], "the whole connected cave is kept (uncapped, unlike the shell)");
+    }
+
+    @Test
+    void sealedCaves_disabledLeavesRealIntact() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        out[idx(1, 10, 1)] = AIR;   // an enclosed pocket
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, false, false);
+        assertEquals(AIR, out[idx(1, 10, 1)], "disabled: REAL leaves caves intact");
+    }
+
+    @Test
+    void sealedCaves_overloadEquivalence_falseEqualsLegacy() {
+        // The 16-arg overload must equal the 17-arg overload with hideSealedCaves=false.
+        int ySize = 64;
+        int[] a = tunnelFixture(ySize);
+        int[] b = tunnelFixture(ySize);
+        a[idx(1, 10, 1)] = AIR;
+        b[idx(1, 10, 1)] = AIR;
+        proc().process(a, ySize, 0, Tier.SHELL, P, true, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true);
+        proc().process(b, ySize, 0, Tier.SHELL, P, true, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, true, false);
+        assertArrayEquals(a, b, "the 16-arg overload must behave exactly like hideSealedCaves=false");
     }
 
     @Test

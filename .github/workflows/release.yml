@@ -52,14 +52,14 @@ jobs:
             git tag -f "$TAG" -m "Release $TAG"
             git push -f origin "$TAG"
           else
-            TAG="${GITHUB_REF_NAME}"           # e.g. v9.2.0
+            TAG="${GITHUB_REF_NAME}"           # e.g. v9.3.0
             VERSION="${TAG#v}"                 # strip leading v
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
 
       - name: Build jar
-        run: mvn clean package -DskipTests --batch-mode
+        run: mvn -B clean package
 
       - name: Locate jar
         id: jar

@@ -54,8 +54,85 @@ hide-all-ores: false
 hide-block-entities: true
 
 # Blocks around the player within which exposed ores stay visible (= "the cave
-# you're in"). Only used when hide-all-ores is false.
+# you're in"). Only used when hide-all-ores is false AND reachability-ores is off.
 ore-reveal-radius: 16
+
+# Reachability ore reveal (smarter than the radius above). Instead of a sphere
+# that can leak ore through a wall, this reveals an ore only if it touches air the
+# player can ACTUALLY reach — the connected cave/tunnel they're standing in. A
+# vein a few blocks away behind solid rock stays hidden; the cave you're in stays
+# fully lit; and it can't be peeked through walls or with freecam (it's computed
+# from your real body position, and unreachable space is never sent).
+#   How: a small, bounded flood-fill around each player runs on the main thread a
+#   few times a second (only when you move into new space), and the result is used
+#   when classifying ore in your real bubble. While it's warming up (just joined /
+#   moving fast) it falls back to ore-reveal-radius, so you never get a blank gap.
+#   Cost: scanning is bounded (real-radius chunks, a vertical band around you) and
+#   throttled; if you're worried about TPS on a big server, watch /tps after
+#   enabling. Off by default.
+reachability-ores: false
+
+# Reachability CAVE hiding (builds on the same scanner as reachability-ores).
+# Normally the real bubble around you is sent fully real, so freecam/x-ray can
+# see every cave near you. With this on, in that bubble every cave-air cell you
+# can NOT reach is solidified — only the cave you're actually standing in stays
+# real. Result: a cave/base you aren't inside reads as solid rock even up close,
+# and freecam can't see it (it's never sent). If anti-base-finder is also on, the
+# enclosed man-made blocks of a base you can't reach are scrubbed too, so its
+# walls don't outline it on x-ray.
+#   Digging stays correct in the cave you're in; mining a wall into a hidden
+#   pocket reveals it within a moment (a re-scan, then a re-send) - never void,
+#   just a brief catch-up. A sealed base (behind a closed door/trapdoor/wall) is
+#   fully hidden; a cave that's genuinely open and walk-into-able from where a
+#   viewer stands is real terrain and can't be hidden.
+#   Recommended together with cave-hiding + anti-base-finder. Off by default.
+reachability-caves: false
+
+# Sealed-cave hiding (the gentle sibling of reachability-caves). Instead of hiding
+# every cave you can't reach, this hides ONLY caves with no entrance to the open
+# sky - fully walled-off pockets and sealed rooms - even in the close-up real
+# bubble. Caves that genuinely reach the surface (real, visible cave mouths) are
+# left intact, so nothing visible is ever false-culled; and the cave/room you are
+# actually standing in is kept (so a sealed base with a closed door never
+# solidifies around you). The result: the swiss-cheese of enclosed cavities that
+# freecam/x-ray loves to reveal around you reads as solid rock, without the
+# aggressiveness (or surprise pop-in) of full reachability hiding.
+#   It shares the same bounded main-thread scanner as the other reachability
+#   features (needed so the room you're in is protected), and is seam-continuous
+#   across chunks. Pure solidify - never creates void; mining into a sealed pocket
+#   reveals it within a moment. A good companion to vertical-culling: it removes the
+#   sealed caves the vertical margin would otherwise leave floating. Off by default.
+hide-sealed-caves: false
+
+# Reveal-distance leash (modifier on the reachability scanner). By default
+# reachability reveals the WHOLE connected cave/tunnel system you can reach - so
+# standing in or at the mouth of a big system, a viewer can see all of it. This
+# caps how far the revealed area extends: only air within this many blocks (3D,
+# straight-line) of you stays revealed; connected space beyond it is hidden and
+# re-reveals as you move closer. So freecam sees only a bubble around you, not the
+# whole system, while the cave you're actually in/near stays correct.
+#   0       = unlimited (reveal the entire connected system; original behavior)
+#   e.g. 32 = only reveal connected air within 32 blocks of you
+# Only does anything while a reachability feature is on (reachability-ores /
+# -caves or hide-sealed-caves - they run the scanner this shapes). It also bounds
+# how far down a shaft you can see (vertical culling keeps reachable air): keep it
+# >= how deep a ravine you want to see into. Off (0) by default.
+reveal-distance: 0
+
+# Surface-entrance camouflage. A buried base is hidden, but its DOOR at the
+# surface (a trapdoor, ladder shaft, hatch or water-lift dropping into the ground)
+# is a dead giveaway from a distance. With this on, in the hidden tiers a column
+# that is a NARROW PIT (every neighbouring column's ground is higher — i.e. a 1-2
+# wide shaft, not a slope or a wide-open cavern) and that contains a man-made
+# block or fluid is capped up to the surrounding rim using the neighbour's own
+# surface blocks, so from afar the ground looks untouched. It reappears in the
+# REAL bubble so you can still use your own entrance.
+#   This is the one deliberate exception to "never touch the surface", kept narrow
+#   and artificial/fluid-gated so natural ravines and cave mouths are left alone.
+#   Pure solidify (only writes solid over transparent) so it never creates void.
+#   Note: a base left WIDE OPEN to the sky (a big sinkhole/open cavern) is surface
+#   terrain and can't be hidden this way - seal the entrance. Off by default.
+surface-entrances: false
 
 # Extra blocks to treat as ore (anti-xray), matched by name substring against
 # the block id. Useful for modded/datapack ores. Examples below (commented):
@@ -88,6 +165,16 @@ collapse-biomes: true
 # bubble). The margin + resend stay ahead of normal digging/falling speed, so
 # you never reach un-revealed solid; worst case under extreme fast descent is a
 # brief re-send catch-up, never void.
+#   The cut is applied PER COLUMN, clamped to each column's own surface: it is
+#   never raised above a column's surface, so when you stand higher than nearby
+#   terrain the open air over that terrain is left alone (no flat floating "cliff"
+#   slab) and lower terrain simply has its deep caves hidden. Columns with no
+#   terrain (open air / ocean) are skipped entirely.
+#   If a reachability feature is on (the scanner is running), vertical culling
+#   also NEVER solidifies air you can reach: the connected cave/ravine you're
+#   standing in stays open all the way down to its floor (look from the top of a
+#   shaft straight to the bottom), no matter how small the margin is, while the
+#   rock around it still collapses. So a small margin (e.g. 8) is safe to use.
 #   true  = big extra savings in the REAL tier (recommended)
 #   false = send full columns (old behavior)
 vertical-culling: true

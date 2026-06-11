@@ -36,10 +36,10 @@ public final class Gui implements Listener {
     private static final TextColor SUB = TextColor.color(0xA6ADC8);
 
     private static final int CAVE = 10, ORE = 12, WORLD = 14, STATS = 16;
-    private static final int BLOCK_ENT = 11, CACHE = 15, ANTI_BASE = 13;
-    private static final int REAL_R = 19, RENDER = 21, SHELL = 23, HOMO = 25;
+    private static final int BLOCK_ENT = 11, CACHE = 15, ANTI_BASE = 13, REACH = 9, REACH_CAVES = 17;
+    private static final int REAL_R = 19, RENDER = 21, SHELL = 23, HOMO = 25, REVEAL_DIST = 26;
     private static final int ROCK = 29, MODE = 31, HIDE_ALL = 28, ORE_RADIUS = 33;
-    private static final int VCULL = 30, VMARGIN = 32;
+    private static final int VCULL = 30, VMARGIN = 32, ENTRANCES = 34, SEALED = 35;
     private static final int P_BAL = 38, P_MAX = 40, P_GEN = 42;
     private static final int CLOSE = 49;
 
@@ -75,6 +75,23 @@ public final class Gui implements Listener {
                 "Camouflage ores you cannot legitimately see."));
         inv.setItem(BLOCK_ENT, toggle(Material.CHEST, "Hide block entities (anti-xray)", c.hideBlockEntities(),
                 "Strip buried chests/spawners from hidden chunks so they can't be packet-xrayed."));
+        inv.setItem(REACH, item(c.reachabilityOres() ? Material.RECOVERY_COMPASS : Material.COMPASS,
+                Component.text("Reachability ore reveal", c.reachabilityOres() ? GREEN : RED),
+                List.of(line(c.reachabilityOres() ? "Enabled" : "Disabled", c.reachabilityOres() ? GREEN : RED),
+                        line("Show ore only where it touches air you can", SUB),
+                        line("actually reach (the cave you're in) - never", SUB),
+                        line("a radius that peeks through walls.", SUB),
+                        line("Falls back to the reveal radius while warming", SUB),
+                        line("up. Click to toggle.", SUB))));
+        inv.setItem(REACH_CAVES, item(c.reachabilityCaves() ? Material.STONE : Material.GLASS,
+                Component.text("Reachability cave hiding", c.reachabilityCaves() ? GREEN : RED),
+                List.of(line(c.reachabilityCaves() ? "Enabled" : "Disabled", c.reachabilityCaves() ? GREEN : RED),
+                        line("Solidify any cave/base you can't reach, even", SUB),
+                        line("up close - only the cave you're standing in", SUB),
+                        line("stays real. Freecam can't see the rest (it's", SUB),
+                        line("never sent). Mining into a hidden pocket", SUB),
+                        line("reveals it within a moment. Pairs with cave", SUB),
+                        line("hiding + anti-base. Click to toggle.", SUB))));
         inv.setItem(ANTI_BASE, item(c.antiBaseFinder() ? Material.SCULK_SENSOR : Material.SCULK_SHRIEKER,
                 Component.text("Anti-Base Finder", c.antiBaseFinder() ? GREEN : RED),
                 List.of(line(c.antiBaseFinder() ? "Enabled" : "Disabled", c.antiBaseFinder() ? GREEN : RED),
@@ -111,6 +128,14 @@ public final class Gui implements Listener {
                 "How far a visible cave opening reveals inward."));
         inv.setItem(HOMO, slider(Material.STONE, "Homogenize below", p.homogenizeBelow(), "blocks",
                 "Deep sections this far under the surface collapse to one block."));
+        int rd = c.revealDistance();
+        inv.setItem(REVEAL_DIST, item(Material.LEAD,
+                Component.text("Reveal distance: " + (rd == 0 ? "unlimited" : rd + " blocks"), TEXT),
+                List.of(line("Leash on how far reachability reveals around you.", SUB),
+                        line("Caves/air beyond this (3D) are hidden even if", SUB),
+                        line("connected, and reveal as you approach. 0 = off", SUB),
+                        line("(reveal the whole connected system). Needs a", SUB),
+                        line("reachability feature on. Left +8 / Right -8", SUB))));
 
         inv.setItem(ROCK, toggle(Material.TUFF, "Rock collapse (max savings)", p.rockCollapse(),
                 "Deep tier merges all rock into the ghost block."));
@@ -123,6 +148,24 @@ public final class Gui implements Listener {
         inv.setItem(VMARGIN, slider(Material.LADDER, "Vertical margin", c.verticalMargin(), "blocks",
                 "Blocks kept real below your feet before culling. Higher = safer for fast drops."));
 
+        inv.setItem(ENTRANCES, item(c.surfaceEntrances() ? Material.GRASS_BLOCK : Material.IRON_TRAPDOOR,
+                Component.text("Surface-entrance camouflage", c.surfaceEntrances() ? GREEN : RED),
+                List.of(line(c.surfaceEntrances() ? "Enabled" : "Disabled", c.surfaceEntrances() ? GREEN : RED),
+                        line("Hide small base entrances at the surface from", SUB),
+                        line("afar: a trapdoor/ladder shaft or water-lift in", SUB),
+                        line("a narrow pit is capped and blended into the", SUB),
+                        line("ground. Shows again up close so you can use it.", SUB),
+                        line("Natural ravines/cave mouths are left alone.", SUB),
+                        line("Click to toggle.", SUB))));
+        inv.setItem(SEALED, item(c.hideSealedCaves() ? Material.STONE_BRICKS : Material.GLOW_BERRIES,
+                Component.text("Sealed-cave hiding", c.hideSealedCaves() ? GREEN : RED),
+                List.of(line(c.hideSealedCaves() ? "Enabled" : "Disabled", c.hideSealedCaves() ? GREEN : RED),
+                        line("Solidify caves with NO entrance to the sky -", SUB),
+                        line("walled-off pockets and sealed rooms - even up", SUB),
+                        line("close. Open caves and the room you're in stay", SUB),
+                        line("real, so nothing visible is false-culled. The", SUB),
+                        line("gentle sibling of reachability cave hiding;", SUB),
+                        line("uses the same scanner. Click to toggle.", SUB))));
         inv.setItem(HIDE_ALL, toggle(Material.SCULK, "Paranoid anti-xray", c.hideAllOres(),
                 "ON: hide every ore. OFF: show surface veins + ores in the cave you're in."));
         inv.setItem(ORE_RADIUS, slider(Material.IRON_ORE, "Ore reveal radius", c.oreRevealRadius(), "blocks",
@@ -153,6 +196,13 @@ public final class Gui implements Listener {
         lore.add(line("Chunks modified: " + m.packetsModified(), SUB));
         lore.add(line("Ores hidden: " + m.oresHidden(), SUB));
         lore.add(line("Cave blocks solidified: " + m.blocksSolidified(), SUB));
+        Config c = plugin.cfg();
+        lore.add(line("Anti-base: " + (c.antiBaseFinder() ? "on" : "off")
+                + "   Reach ores: " + (c.reachabilityOres() ? "on" : "off")
+                + "   Reach caves: " + (c.reachabilityCaves() ? "on" : "off"), SUB));
+        lore.add(line("Sealed caves: " + (c.hideSealedCaves() ? "on" : "off")
+                + "   Surface entrances: " + (c.surfaceEntrances() ? "on" : "off"), SUB));
+        lore.add(line("Reveal distance: " + (c.revealDistance() == 0 ? "unlimited" : c.revealDistance() + " blocks"), SUB));
         return item(Material.BOOK, Component.text("Live statistics", YELLOW), lore);
     }
 
@@ -174,11 +224,16 @@ public final class Gui implements Listener {
             case ORE -> c.setOreHiding(!c.oreHiding());
             case BLOCK_ENT -> c.setHideBlockEntities(!c.hideBlockEntities());
             case ANTI_BASE -> c.setAntiBaseFinder(!c.antiBaseFinder());
+            case REACH -> c.setReachabilityOres(!c.reachabilityOres());
+            case REACH_CAVES -> c.setReachabilityCaves(!c.reachabilityCaves());
+            case SEALED -> c.setHideSealedCaves(!c.hideSealedCaves());
+            case ENTRANCES -> c.setSurfaceEntrances(!c.surfaceEntrances());
             case CACHE -> c.setChunkCache(!c.chunkCache());
             case VCULL -> c.setVerticalCulling(!c.verticalCulling());
             case VMARGIN -> c.setVerticalMargin(clamp(c.verticalMargin() + (left ? 8 : -8), 8, 128));
             case HIDE_ALL -> c.setHideAllOres(!c.hideAllOres());
             case ORE_RADIUS -> c.setOreRevealRadius(clamp(c.oreRevealRadius() + (left ? 2 : -2), 0, 64));
+            case REVEAL_DIST -> c.setRevealDistance(clamp(c.revealDistance() + (left ? 8 : -8), 0, 256));
             case WORLD -> c.toggleWorld(player.getWorld().getName());
             case ROCK -> c.setCurrentModeBool("rock-collapse", !c.params().rockCollapse());
             case MODE -> c.setMode(c.mode().next());

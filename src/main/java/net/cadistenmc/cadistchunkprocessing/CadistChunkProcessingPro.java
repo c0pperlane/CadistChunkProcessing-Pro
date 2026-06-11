@@ -31,6 +31,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
     private BandwidthMonitor monitor;
     private PlayerTracker tracker;
     private RefreshScheduler scheduler;
+    private ReachabilityService reachability;
     private Gui gui;
     private PacketListenerCommon registered;
 
@@ -50,16 +51,18 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
         monitor = new BandwidthMonitor(this);
         scheduler = new RefreshScheduler(this, config);
         scheduler.start();
+        reachability = new ReachabilityService(this, config, scheduler);
+        reachability.start();
         tracker = new PlayerTracker(config, worldMeta, scheduler);
         gui = new Gui(this);
 
         ChunkPacketInterceptor interceptor = new ChunkPacketInterceptor(
-                this, config, worldMeta, tracker, borderCache, chunkCache, monitor, classifier);
+                this, config, worldMeta, tracker, borderCache, chunkCache, monitor, classifier, reachability);
 
         var pm = getServer().getPluginManager();
         pm.registerEvents(tracker, this);
         pm.registerEvents(gui, this);
-        pm.registerEvents(new ChunkDirtyListener(borderCache, chunkCache), this);
+        pm.registerEvents(new ChunkDirtyListener(borderCache, chunkCache, reachability), this);
 
         registered = PacketEvents.getAPI().getEventManager().registerListener(interceptor);
 
@@ -73,6 +76,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
         if (registered != null && PacketEvents.getAPI() != null) {
             PacketEvents.getAPI().getEventManager().unregisterListener(registered);
         }
+        if (reachability != null) reachability.stop();
         if (scheduler != null) scheduler.stop();
         if (borderCache != null) borderCache.clear();
     }
@@ -86,6 +90,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
     public void applyChanges() {
         borderCache.clear();
         chunkCache.clear();
+        if (reachability != null) reachability.clear();
         if (classifier != null) classifier.setExtraOres(config.extraOres());
         int r = config.params().caveRenderDistance();
         for (Player p : getServer().getOnlinePlayers()) {
@@ -102,7 +107,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
-            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | antibase | reload", SUB);
+            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | antibase | reach | reachcaves | sealedcaves | entrances | reload", SUB);
             return true;
         }
         switch (args[0].toLowerCase()) {
@@ -114,6 +119,12 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                 send(sender, "CadistChunkProcessing Pro", MAUVE);
                 send(sender, "  mode: " + config.mode().display
                         + "  cave=" + config.caveHiding() + "  ore=" + config.oreHiding(), SUB);
+                send(sender, "  anti-base=" + config.antiBaseFinder()
+                        + "  reach-ores=" + config.reachabilityOres()
+                        + "  reach-caves=" + config.reachabilityCaves()
+                        + "  sealed-caves=" + config.hideSealedCaves()
+                        + "  entrances=" + config.surfaceEntrances()
+                        + "  vertical-cull=" + config.verticalCulling(), SUB);
                 send(sender, String.format("  bandwidth saved: %.1f%%  (%s this session)",
                         monitor.savingsPercent(), monitor.savedHuman()), GREEN);
                 send(sender, "  chunks/sec: " + monitor.chunksPerSecond()
@@ -159,6 +170,26 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                 config.setAntiBaseFinder(!config.antiBaseFinder());
                 applyChanges();
                 send(sender, "Anti-Base Finder " + (config.antiBaseFinder() ? "enabled." : "disabled."), GREEN);
+            }
+            case "reach" -> {
+                config.setReachabilityOres(!config.reachabilityOres());
+                applyChanges();
+                send(sender, "Reachability ore reveal " + (config.reachabilityOres() ? "enabled." : "disabled."), GREEN);
+            }
+            case "reachcaves" -> {
+                config.setReachabilityCaves(!config.reachabilityCaves());
+                applyChanges();
+                send(sender, "Reachability cave hiding " + (config.reachabilityCaves() ? "enabled." : "disabled."), GREEN);
+            }
+            case "sealedcaves" -> {
+                config.setHideSealedCaves(!config.hideSealedCaves());
+                applyChanges();
+                send(sender, "Sealed-cave hiding " + (config.hideSealedCaves() ? "enabled." : "disabled."), GREEN);
+            }
+            case "entrances" -> {
+                config.setSurfaceEntrances(!config.surfaceEntrances());
+                applyChanges();
+                send(sender, "Surface-entrance camouflage " + (config.surfaceEntrances() ? "enabled." : "disabled."), GREEN);
             }
             case "reload" -> {
                 config.reload();

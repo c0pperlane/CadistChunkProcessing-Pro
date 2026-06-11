@@ -68,6 +68,107 @@ PacketEvents (installed as its own plugin) is used to intercept `CHUNK_DATA`.
 The engine never touches the Bukkit API on the packet thread (LeafMC / Moonrise
 safe). On any error the packet is passed through untouched.
 
+## Reachability ore reveal
+
+The default ore policy keeps a vein visible if it's exposed to air within a fixed
+**radius** of you — which can leak ore through a wall. **Reachability ore reveal**
+(`reachability-ores`, GUI toggle, `/cadistchunk reach`) replaces that radius with
+true **reachability**: an ore stays visible only if it touches air you can
+*actually reach* — the connected cave/tunnel you're standing in. A vein a few
+blocks away behind solid rock stays hidden, the cave you're in stays fully lit,
+and it can't be peeked through a wall or with freecam (it's computed from your
+real body position, and unreachable space is never sent).
+
+A small, bounded flood-fill runs around each player on the main thread a few
+times a second (only when you move into new space); while it's warming up it
+falls back to `ore-reveal-radius`, so you never get a blank gap. Scanning is
+bounded to the real bubble and a vertical band, but on a large/busy server keep
+an eye on `/tps` after enabling. Off by default.
+
+### Reachability cave/base hiding
+
+The same reachability primitive can hide *geometry*, not just ore.
+`reachability-caves` (GUI toggle, `/cadistchunk reachcaves`) solidifies, even in
+the close-up real bubble, every cave-air cell you **can't reach** — so only the
+cave you're actually standing in stays real. A cave or base you aren't inside
+reads as solid rock even up close, and **freecam can't see it** because it was
+never sent. With `anti-base-finder` also on, the enclosed man-made blocks of a
+base you can't reach are scrubbed too, so its walls don't outline it on x-ray.
+
+Digging in the cave you're in is correct; mining a wall into a hidden pocket
+reveals it within a moment (a re-scan + re-send — never void, just a brief
+catch-up). A **sealed** base (behind a closed door/trapdoor/wall) becomes fully
+hidden; a cave that's genuinely open and walk-into-able from where a viewer
+stands is real terrain and can't be hidden. Recommended together with
+cave-hiding + anti-base-finder. Off by default.
+
+### Sealed-cave hiding
+
+`reachability-caves` is aggressive — it hides *every* cave you can't reach, which
+can pop a genuinely-open cave out of view as you move. **Sealed-cave hiding**
+(`hide-sealed-caves`, GUI toggle, `/cadistchunk sealedcaves`) is the gentle
+sibling: in the close-up real bubble it solidifies only the caves that have **no
+entrance to the open sky** — fully walled-off pockets and sealed rooms — while
+leaving every cave that genuinely reaches the surface (real, visible mouths)
+untouched. So the swiss-cheese of enclosed cavities that freecam/x-ray reveals
+around you reads as solid rock, but nothing *visible* is ever false-culled.
+
+The cave/room you're actually standing in is kept (via the same reachability
+scanner, so a sealed base behind a closed door never solidifies around you), and
+it's seam-continuous across chunks. Pure solidify — never void; mining into a
+sealed pocket reveals it within a moment. It's the natural companion to vertical
+culling: it removes the sealed caves the vertical margin would otherwise leave
+floating above the cut. Off by default.
+
+### Reveal-distance leash
+
+By default reachability reveals the *whole* connected cave system you can reach —
+so standing in or at the mouth of a big system, a viewer can still see all of it.
+**`reveal-distance`** (GUI slider) caps that: only connected air within N blocks
+(3-D, straight-line) of you stays revealed; anything further is hidden and
+re-reveals as you move closer. Freecam then sees only a bubble around you, not the
+whole system, while the cave you're actually in stays correct. It also bounds how
+far down a shaft you can see (vertical culling keeps reachable air), so set it at
+least as deep as the ravines you want to see into. `0` = unlimited (original
+behavior). Only active while a reachability feature is on (it shapes that
+scanner). This is the zero-state, no-pop-in alternative to fog-of-war.
+
+### Surface-entrance camouflage
+
+A buried base is hidden, but its **door at the surface** — a trapdoor, ladder
+shaft, hatch or water-lift dropping into the ground — still gives it away from a
+distance. `surface-entrances` (GUI toggle, `/cadistchunk entrances`) closes that:
+in the hidden tiers, a column that is a **narrow pit** (every neighbour's ground
+is higher — a 1–2 wide shaft, not a slope or a wide-open cavern) **and** holds a
+man-made block or fluid is capped up to the surrounding rim with the neighbour's
+own surface blocks, so from afar the ground reads as untouched. It reappears in
+the REAL bubble so you can use your own entrance.
+
+This is the single deliberate exception to "never touch the surface", kept narrow
+and artificial/fluid-gated so natural ravines and cave mouths are left alone, and
+pure-solidify so it never creates void. A base left **wide open to the sky** (a
+big sinkhole/open cavern) is surface terrain and can't be hidden this way — seal
+the entrance. Off by default.
+
+## Recommended setups
+
+Everything aggressive is **off by default** (safe, vanilla-looking, low cost). Pick
+a profile by what you want:
+
+- **Bandwidth only (default).** `cave-hiding` + `ore-hiding` on, `vertical-culling`
+  on. No reachability scan, no per-player cost. Good for any server.
+- **Anti-x-ray.** The above plus `hide-block-entities: true` (default) and, if you
+  want zero ore leakage, `hide-all-ores: true`.
+- **Hide bases from freecam (the full package).** Turn on `reachability-caves` +
+  `hide-sealed-caves`, set `reveal-distance: 32`, and `vertical-margin: 8`. Now only
+  the cave/room you're actually in (and ~32 blocks around you) is ever real; sealed
+  pockets, deep caves and anything past the leash read as solid rock, and freecam
+  can't see a base you haven't walked into. Optionally add `anti-base-finder` (scrubs
+  man-made blocks) and `surface-entrances` (caps ladder/water-lift shafts). This runs
+  the bounded main-thread reachability scan — watch `/tps` on a very large server.
+
+All of it is live-toggleable in `/cadistchunk gui`.
+
 ## Modes (live-switchable)
 
 | Mode | Real bubble | Reveal | Savings |
@@ -84,6 +185,10 @@ safe). On any error the packet is passed through untouched.
 - `/cadistchunk mode <BALANCED|MAX_SAVINGS|GENEROUS>`
 - `/cadistchunk cave` / `ore` — toggle hiding
 - `/cadistchunk antibase` — toggle the Anti-Base Finder (aggressive base hiding)
+- `/cadistchunk reach` — toggle reachability ore reveal (see below)
+- `/cadistchunk reachcaves` — toggle reachability cave/base hiding (see below)
+- `/cadistchunk sealedcaves` — toggle sealed-cave hiding (entrance-less caves; see below)
+- `/cadistchunk entrances` — toggle surface-entrance camouflage (see below)
 - `/cadistchunk reload`
 
 Permission `cadistchunkprocessing.bypass` makes a player receive raw chunks.
@@ -94,7 +199,7 @@ Requires JDK 21. PacketEvents must be installed on the target server.
 
 ```bash
 mvn clean package
-# -> target/CadistChunkProcessing-Pro-9.0.0.jar
+# -> target/CadistChunkProcessing-Pro-9.3.0.jar
 ```
 
 `paper-api 1.21.11` and `packetevents-spigot 2.12.1` are `provided` (not shaded).

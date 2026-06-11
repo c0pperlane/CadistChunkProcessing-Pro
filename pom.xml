@@ -7,7 +7,7 @@
 
     <groupId>net.cadistenmc</groupId>
     <artifactId>CadistChunkProcessing-Pro</artifactId>
-    <version>9.0.0</version>
+    <version>9.3.0</version>
     <packaging>jar</packaging>
 
     <name>CadistChunkProcessingPro</name>
@@ -22,6 +22,11 @@
         <repository>
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
+        </repository>
+        <!-- PacketEvents is published here, not on papermc/central. -->
+        <repository>
+            <id>codemc</id>
+            <url>https://repo.codemc.io/repository/maven-releases/</url>
         </repository>
     </repositories>
 

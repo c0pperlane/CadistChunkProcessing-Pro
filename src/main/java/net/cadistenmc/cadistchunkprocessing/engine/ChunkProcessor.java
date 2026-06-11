@@ -133,6 +133,68 @@ public final class ChunkProcessor {
                           Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
                           int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
                           boolean antiBaseFinder) {
+        return process(blocks, ySize, minY, tier, params, oreCamo, oreView, ghostHigh, ghostLow,
+                border, verticalCutLocalY, antiBaseFinder, null, false);
+    }
+
+    /**
+     * As above, plus reachability cave hiding. In the REAL tier, when
+     * {@code reachabilityCaves} is on and a {@code reachable} mask (chunk-local,
+     * idx = (y&lt;&lt;8)|(z&lt;&lt;4)|x) is supplied, every cave-air cell the
+     * player can NOT reach is solidified — so a cave/base you aren't standing in
+     * reads as solid rock even up close, and freecam can't see it (it's never
+     * sent). The cave you're in (reachable) stays real, so digging there is
+     * correct; mining into a hidden pocket reveals it on the next scan. With
+     * {@code antiBaseFinder} also on, enclosed man-made blocks you can't reach are
+     * scrubbed too, so a base's walls don't outline it on x-ray. Pure solidify.
+     */
+    public Result process(int[] blocks, int ySize, int minY,
+                          Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
+                          int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
+                          boolean antiBaseFinder, boolean[] reachable, boolean reachabilityCaves) {
+        return process(blocks, ySize, minY, tier, params, oreCamo, oreView, ghostHigh, ghostLow,
+                border, verticalCutLocalY, antiBaseFinder, reachable, reachabilityCaves, false);
+    }
+
+    /**
+     * As above, plus {@code surfaceEntrances}: in the hidden tiers (SHELL/DEEP),
+     * camouflage small artificial/water surface entrances — a trapdoor, ladder
+     * shaft, hatch or water-lift dropping into a base. A column that is a narrow
+     * pit (every neighbour's surface is higher) and contains a man-made block or
+     * fluid is capped up to the surrounding ground with the neighbour's own
+     * surface blocks, so from a distance the ground reads as untouched. It
+     * reappears in the REAL bubble so you can use your own door. The single
+     * deliberate exception to "never touch the surface" — kept narrow and
+     * artificial-gated so natural ravines / cave mouths are left alone. Pure
+     * solidify (only writes solid over transparent), so the no-void rule holds.
+     */
+    public Result process(int[] blocks, int ySize, int minY,
+                          Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
+                          int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
+                          boolean antiBaseFinder, boolean[] reachable, boolean reachabilityCaves,
+                          boolean surfaceEntrances) {
+        return process(blocks, ySize, minY, tier, params, oreCamo, oreView, ghostHigh, ghostLow,
+                border, verticalCutLocalY, antiBaseFinder, reachable, reachabilityCaves,
+                surfaceEntrances, false);
+    }
+
+    /**
+     * As above, plus {@code hideSealedCaves}: REAL-tier sealed-cave hiding. With it
+     * on, every cave-air cell that has no air path to the open sky — an
+     * <em>entrance-less</em> pocket (a fully walled-off cavity or a sealed room) —
+     * is solidified, while caves that DO reach the surface (real, visible cave
+     * mouths) are left intact, so nothing is false-culled and no void is created.
+     * The cave/room the player is actually in is kept via the {@code reachable}
+     * mask, so a sealed base you're standing in (closed door) never solidifies
+     * around you. Seam-continuous across chunks via {@code border}. The gentle
+     * sibling of reachability cave hiding: it removes only what genuinely has no
+     * entrance, never open caves you merely aren't standing in.
+     */
+    public Result process(int[] blocks, int ySize, int minY,
+                          Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
+                          int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
+                          boolean antiBaseFinder, boolean[] reachable, boolean reachabilityCaves,
+                          boolean surfaceEntrances, boolean hideSealedCaves) {
         Result r = new Result();
         final int total = ySize << 8;
         ensureScratch(total);
@@ -159,6 +221,25 @@ public final class ChunkProcessor {
             }
             // DEEP: dist stays -1 everywhere -> nothing revealed -> all hidden.
             solidifyHidden(blocks, ySize, minY, ghostHigh, ghostLow, total, r);
+        } else {
+            // REAL tier cave hiding. Two complementary policies, either/both:
+            //   reachabilityCaves — hide every cave the player can't reach (sealed
+            //       bases AND open caves you aren't standing in); aggressive.
+            //   hideSealedCaves   — the gentle option: hide only caves with no
+            //       entrance to the open sky, keeping open caves and the room you
+            //       are in (reachable). Removes only what genuinely has no way in.
+            boolean[] reach = (reachable != null && reachable.length >= total) ? reachable : null;
+            boolean reachOn = reachabilityCaves && reach != null;
+            if (reachOn || hideSealedCaves) {
+                classifyCaveAir(blocks, heightMap, ySize, total);
+                if (hideSealedCaves) {
+                    markSurfaceConnected(blocks, ySize, total, border);
+                    solidifySealed(blocks, minY, ghostHigh, ghostLow, total, reach, r);
+                }
+                if (reachOn) {
+                    solidifyUnreachable(blocks, ySize, minY, ghostHigh, ghostLow, total, reach, r);
+                }
+            }
         }
 
         if (oreCamo) {
@@ -181,12 +262,27 @@ public final class ChunkProcessor {
             solidifyArtificial(blocks, heightMap, minY, ghostHigh, ghostLow, r);
         }
 
+        // REAL tier + reachability + anti-base: scrub enclosed man-made blocks the
+        // player can't reach, so a hidden base's walls don't outline it on x-ray.
+        if (antiBaseFinder && tier == Tier.REAL && reachabilityCaves
+                && reachable != null && reachable.length >= total) {
+            solidifyArtificialUnreachable(blocks, heightMap, ySize, minY, ghostHigh, ghostLow, reachable, r);
+        }
+
+        // Surface-entrance camouflage: cap small artificial/water entrance shafts
+        // in the hidden tiers so a distant viewer sees untouched ground. Only away
+        // from the player (SHELL/DEEP); the entrance shows in the REAL bubble.
+        if (surfaceEntrances && tier != Tier.REAL) {
+            camouflageSurfaceEntrances(blocks, heightMap, ySize, ghostHigh, r);
+        }
+
         // Vertical culling: solidify everything below the player's depth margin.
         // Runs last so it overrides any revealed cave air / exposed ore below the
         // cut too (extra anti-xray). Never writes air, so the no-void invariant
         // holds; the region re-reveals on descent via the vertical resend.
         if (verticalCutLocalY > 0) {
-            verticalCollapse(blocks, ySize, minY, ghostHigh, ghostLow, verticalCutLocalY, r);
+            boolean[] vReach = (reachable != null && reachable.length >= total) ? reachable : null;
+            verticalCollapse(blocks, heightMap, ySize, minY, ghostHigh, ghostLow, verticalCutLocalY, vReach, r);
         }
 
         r.bytesAfter = estimateBytes(blocks, ySize);
@@ -403,6 +499,184 @@ public final class ChunkProcessor {
         }
     }
 
+    /**
+     * REAL-tier reachability: solidify every cave-air cell the player can't reach.
+     * {@code caveAir} already marks only transparent space below the surface, so
+     * surfaces/sky are never touched; a reachable cell (the cave you're in) is
+     * kept. Pure solidify — only ever writes a solid block.
+     */
+    private void solidifyUnreachable(int[] blocks, int ySize, int minY,
+                                     int ghostHigh, int ghostLow, int total, boolean[] reachable, Result r) {
+        for (int idx = 0; idx < total; idx++) {
+            if (caveAir[idx] && !reachable[idx]) {
+                int worldY = minY + (idx >> 8);
+                blocks[idx] = worldY < 0 ? ghostLow : ghostHigh;
+                r.blocksSolidified++;
+            }
+        }
+    }
+
+    /**
+     * Flood cave air from genuine surface openings (this chunk's exterior/open-sky
+     * air plus neighbour openings via {@code border}) with no depth limit. After it
+     * runs, {@code dist[idx] >= 0} marks every cave-air cell that has an air path to
+     * the open sky; {@code dist[idx] < 0} marks an <em>entrance-less</em> (sealed)
+     * pocket. The mirror of {@link #markRevealedShell} but uncapped — used by REAL-
+     * tier sealed-cave hiding. Assumes {@code dist} is pre-filled to -1
+     * (classifyCaveAir does this) and ignores the anti-base taint mask.
+     */
+    private void markSurfaceConnected(int[] blocks, int ySize, int total, BorderSeed border) {
+        int tail = 0;
+        for (int idx = 0; idx < total; idx++) {
+            if (!caveAir[idx] || dist[idx] >= 0) continue;
+            int x = idx & 15, z = (idx >> 4) & 15, y = idx >> 8;
+            if (touchesOpening(blocks, idx, x, y, z, ySize, border)) {
+                dist[idx] = 0;
+                queue[tail++] = idx;
+            }
+        }
+        int head = 0;
+        while (head < tail) {
+            int idx = queue[head++];
+            int x = idx & 15, z = (idx >> 4) & 15, y = idx >> 8;
+            if (x > 0)         tail = relaxOpen(idx - 1,   tail);
+            if (x < 15)        tail = relaxOpen(idx + 1,   tail);
+            if (z > 0)         tail = relaxOpen(idx - 16,  tail);
+            if (z < 15)        tail = relaxOpen(idx + 16,  tail);
+            if (y > 0)         tail = relaxOpen(idx - 256, tail);
+            if (y < ySize - 1) tail = relaxOpen(idx + 256, tail);
+        }
+    }
+
+    /** Mark a cave-air neighbour surface-connected; returns the (grown) queue tail. */
+    private int relaxOpen(int n, int tail) {
+        if (caveAir[n] && dist[n] < 0) {
+            dist[n] = 0;
+            queue[tail++] = n;
+        }
+        return tail;
+    }
+
+    /**
+     * REAL-tier sealed-cave hiding: solidify every cave-air cell with no surface
+     * connection ({@code dist < 0}) that the player also can't reach. Keeps open
+     * caves (surface-connected) and the cave/room you're standing in (reachable),
+     * so it never false-culls a visible cave nor buries the player. Clears the
+     * solidified cells from {@code caveAir} so a following reachability pass doesn't
+     * double-count them. Pure solidify — only ever writes a solid block.
+     */
+    private void solidifySealed(int[] blocks, int minY, int ghostHigh, int ghostLow,
+                                int total, boolean[] reachable, Result r) {
+        for (int idx = 0; idx < total; idx++) {
+            if (!caveAir[idx] || dist[idx] >= 0) continue;       // surface-connected -> keep
+            if (reachable != null && reachable[idx]) continue;   // the cave you're in -> keep
+            int worldY = minY + (idx >> 8);
+            blocks[idx] = worldY < 0 ? ghostLow : ghostHigh;
+            caveAir[idx] = false;
+            r.blocksSolidified++;
+        }
+    }
+
+    /**
+     * REAL-tier reachability + anti-base: solidify man-made blocks below the
+     * surface that touch no reachable air — i.e. the walls/floor of a base you
+     * aren't inside. When you're in the base the interior air is reachable, so the
+     * adjacent blocks are kept and it stays real.
+     */
+    private void solidifyArtificialUnreachable(int[] blocks, int[] heightMap, int ySize, int minY,
+                                               int ghostHigh, int ghostLow, boolean[] reachable, Result r) {
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                int s = heightMap[(z << 4) | x];
+                if (s < 0) continue;
+                for (int y = 0; y < s; y++) {
+                    int idx = (y << 8) | (z << 4) | x;
+                    if (!clf.isArtificial(blocks[idx])) continue;
+                    if (adjacentReachable(reachable, idx, x, y, z, ySize)) continue;
+                    int g = (minY + y) < 0 ? ghostLow : ghostHigh;
+                    if (blocks[idx] != g) {
+                        blocks[idx] = g;
+                        r.blocksSolidified++;
+                    }
+                }
+            }
+        }
+    }
+
+    /** Deepest narrow entrance shaft we'll cap; beyond this it's likely a natural chasm. */
+    private static final int ENTRANCE_MAX_DEPTH = 96;
+
+    /**
+     * Cap small artificial/water surface entrances. A column qualifies when it is
+     * a <em>narrow pit</em> — every in-chunk orthogonal neighbour's surface is
+     * strictly higher (so it's a 1–2 wide shaft, not a slope or a wide open
+     * cavern) — and the pit holds a man-made block or fluid (so a natural hole is
+     * left alone). It's then filled from its own surface up to the lowest
+     * surrounding rim with that neighbour's surface blocks, blending the hole into
+     * the ground. Only ever writes solid over transparent, so no void is created;
+     * it re-reveals as REAL on approach.
+     */
+    private void camouflageSurfaceEntrances(int[] blocks, int[] heightMap, int ySize, int ghostHigh, Result r) {
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                int col = (z << 4) | x;
+                int ownS = heightMap[col];
+                if (ownS < 0) continue;
+
+                // Every in-chunk orthogonal neighbour must be strictly higher.
+                int minN = Integer.MAX_VALUE, refCol = -1, present = 0;
+                boolean pit = true;
+                int[][] nb = {{x - 1, z}, {x + 1, z}, {x, z - 1}, {x, z + 1}};
+                for (int[] n : nb) {
+                    int nx = n[0], nz = n[1];
+                    if (nx < 0 || nx > 15 || nz < 0 || nz > 15) continue;
+                    present++;
+                    int nh = heightMap[(nz << 4) | nx];
+                    if (nh <= ownS) { pit = false; break; }
+                    if (nh < minN) { minN = nh; refCol = (nz << 4) | nx; }
+                }
+                if (!pit || present < 2 || refCol < 0) continue;
+                int nS = minN;
+                if (nS - ownS > ENTRANCE_MAX_DEPTH) continue;
+
+                // The pit must contain a man-made block or fluid (an entrance, not a natural hole).
+                boolean entrance = false;
+                int top = Math.min(nS + 1, ySize - 1);
+                for (int y = ownS + 1; y <= top; y++) {
+                    int v = blocks[(y << 8) | col];
+                    if (clf.isArtificial(v) || clf.isFluid(v)) { entrance = true; break; }
+                }
+                if (!entrance) continue;
+
+                // Blend with the lowest-rim neighbour's own surface blocks.
+                int topBlock = blocks[(nS << 8) | refCol];
+                int belowBlock = (nS - 1 >= 0) ? blocks[((nS - 1) << 8) | refCol] : topBlock;
+                if (!clf.isTerrain(topBlock)) topBlock = ghostHigh;
+                if (!clf.isTerrain(belowBlock)) belowBlock = ghostHigh;
+
+                for (int y = ownS + 1; y <= nS; y++) {
+                    int idx = (y << 8) | col;
+                    int g = (y == nS) ? topBlock : belowBlock;
+                    if (blocks[idx] != g) {
+                        blocks[idx] = g;
+                        r.blocksSolidified++;
+                    }
+                }
+            }
+        }
+    }
+
+    /** True if any of the six neighbours is a cell the player can reach. */
+    private boolean adjacentReachable(boolean[] m, int idx, int x, int y, int z, int ySize) {
+        if (x > 0          && m[idx - 1])   return true;
+        if (x < 15         && m[idx + 1])   return true;
+        if (z > 0          && m[idx - 16])  return true;
+        if (z < 15         && m[idx + 16])  return true;
+        if (y > 0          && m[idx - 256]) return true;
+        if (y < ySize - 1  && m[idx + 256]) return true;
+        return false;
+    }
+
     // ------------------------------------------------------------- homogenize
 
     /**
@@ -438,22 +712,42 @@ public final class ChunkProcessor {
     }
 
     /**
-     * Solidify every block below {@code cutLocalY} to the world-correct ghost
-     * block — a flat horizontal cut (not surface-relative). Used for vertical
-     * culling in the REAL bubble so the deep column under a surface player isn't
-     * sent in full. Pure solidify: only ever overwrites with a solid block.
+     * Vertical culling, per column. Solidify each column from the bottom up to
+     * {@code min(playerCutLocalY, columnSurface)} — i.e. the flat player cut
+     * (playerY − margin) <em>clamped to that column's own surface</em>. Clamping is
+     * what stops a flat cliff: when the player stands higher than nearby terrain,
+     * the raw player cut sits above that terrain's surface, and an un-clamped cut
+     * would fill the open air with a floating stone slab. Clamped, a column is never
+     * solidified above its own surface (open air and the surface skin stay vanilla),
+     * so far/lower terrain in the bubble simply has its deep caves hidden instead of
+     * being sliced by a plane. Columns with no terrain are skipped entirely (never
+     * slab over air or ocean). As the player descends, the player cut drops below
+     * the surface and reveals the column locally.
+     *
+     * <p>If a {@code reachable} mask is supplied, cells the player can reach are
+     * never solidified — so the connected cave/ravine you're standing in stays open
+     * all the way down to its floor (you can look from the top to the bottom of the
+     * shaft you're in), regardless of how small the margin is, while the solid rock
+     * around it still collapses. Pure solidify — never void.
      */
-    private void verticalCollapse(int[] blocks, int ySize, int minY,
-                                  int ghostHigh, int ghostLow, int cutLocalY, Result r) {
-        int cut = Math.min(cutLocalY, ySize);
-        for (int y = 0; y < cut; y++) {
-            int g = (minY + y) < 0 ? ghostLow : ghostHigh;
-            int base = y << 8;
-            for (int i = 0; i < 256; i++) {
-                int idx = base | i;
-                if (blocks[idx] != g) {
-                    blocks[idx] = g;
-                    r.blocksHomogenized++;
+    private void verticalCollapse(int[] blocks, int[] heightMap, int ySize, int minY,
+                                  int ghostHigh, int ghostLow, int playerCutLocalY,
+                                  boolean[] reachable, Result r) {
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                int col = (z << 4) | x;
+                int surface = heightMap[col];
+                if (surface < 0) continue;                 // no terrain -> never solidify open air
+                int cut = Math.min(playerCutLocalY, surface);
+                if (cut > ySize) cut = ySize;
+                for (int y = 0; y < cut; y++) {
+                    int idx = (y << 8) | col;
+                    if (reachable != null && reachable[idx]) continue;   // the cave/ravine you're in -> keep
+                    int g = (minY + y) < 0 ? ghostLow : ghostHigh;
+                    if (blocks[idx] != g) {
+                        blocks[idx] = g;
+                        r.blocksHomogenized++;
+                    }
                 }
             }
         }
@@ -474,6 +768,8 @@ public final class ChunkProcessor {
                 case SURFACE_ONLY -> surfaceExposed(blocks, heightMap, idx, x, y, z, ySize);
                 case SURFACE_AND_NEAR -> surfaceExposed(blocks, heightMap, idx, x, y, z, ySize)
                         || (oreExposed(blocks, idx, x, y, z, ySize, border) && nearPlayer(view, x, y, z, minY));
+                case SURFACE_AND_REACHABLE -> surfaceExposed(blocks, heightMap, idx, x, y, z, ySize)
+                        || exposedToReachable(view, idx, x, y, z, ySize);
             };
             if (keep) continue;
 
@@ -498,6 +794,24 @@ public final class ChunkProcessor {
         if (!clf.isTransparent(blocks[nIdx])) return false;
         int ny = nIdx >> 8, nx = nIdx & 15, nz = (nIdx >> 4) & 15;
         return ny >= heightMap[(nz << 4) | nx];   // at/above its column's surface = open sky
+    }
+
+    /**
+     * Ore touches air the player can actually reach (a cell flagged in the
+     * reachability mask). The mask only marks reachable transparent cells, so a
+     * flagged neighbour is genuine open space connected to the player — no radius,
+     * no peeking through walls. Safe if the mask is missing/short.
+     */
+    private boolean exposedToReachable(OreView v, int idx, int x, int y, int z, int ySize) {
+        boolean[] m = v.reachable;
+        if (m == null || m.length < (ySize << 8)) return false;
+        if (x > 0          && m[idx - 1])   return true;
+        if (x < 15         && m[idx + 1])   return true;
+        if (z > 0          && m[idx - 16])  return true;
+        if (z < 15         && m[idx + 16])  return true;
+        if (y > 0          && m[idx - 256]) return true;
+        if (y < ySize - 1  && m[idx + 256]) return true;
+        return false;
     }
 
     /** Ore is within the reveal radius of the player (the cave they're standing in). */
