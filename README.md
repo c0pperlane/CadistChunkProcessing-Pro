@@ -150,6 +150,25 @@ pure-solidify so it never creates void. A base left **wide open to the sky** (a
 big sinkhole/open cavern) is surface terrain and can't be hidden this way — seal
 the entrance. Off by default.
 
+## Recommended setups
+
+Everything aggressive is **off by default** (safe, vanilla-looking, low cost). Pick
+a profile by what you want:
+
+- **Bandwidth only (default).** `cave-hiding` + `ore-hiding` on, `vertical-culling`
+  on. No reachability scan, no per-player cost. Good for any server.
+- **Anti-x-ray.** The above plus `hide-block-entities: true` (default) and, if you
+  want zero ore leakage, `hide-all-ores: true`.
+- **Hide bases from freecam (the full package).** Turn on `reachability-caves` +
+  `hide-sealed-caves`, set `reveal-distance: 32`, and `vertical-margin: 8`. Now only
+  the cave/room you're actually in (and ~32 blocks around you) is ever real; sealed
+  pockets, deep caves and anything past the leash read as solid rock, and freecam
+  can't see a base you haven't walked into. Optionally add `anti-base-finder` (scrubs
+  man-made blocks) and `surface-entrances` (caps ladder/water-lift shafts). This runs
+  the bounded main-thread reachability scan — watch `/tps` on a very large server.
+
+All of it is live-toggleable in `/cadistchunk gui`.
+
 ## Modes (live-switchable)
 
 | Mode | Real bubble | Reveal | Savings |
@@ -180,7 +199,7 @@ Requires JDK 21. PacketEvents must be installed on the target server.
 
 ```bash
 mvn clean package
-# -> target/CadistChunkProcessing-Pro-9.2.4.jar
+# -> target/CadistChunkProcessing-Pro-9.3.0.jar
 ```
 
 `paper-api 1.21.11` and `packetevents-spigot 2.12.1` are `provided` (not shaded).
