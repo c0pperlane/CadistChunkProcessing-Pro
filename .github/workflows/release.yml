@@ -52,7 +52,7 @@ jobs:
             git tag -f "$TAG" -m "Release $TAG"
             git push -f origin "$TAG"
           else
-            TAG="${GITHUB_REF_NAME}"           # e.g. v9.1.0
+            TAG="${GITHUB_REF_NAME}"           # e.g. v9.3.0
             VERSION="${TAG#v}"                 # strip leading v
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
