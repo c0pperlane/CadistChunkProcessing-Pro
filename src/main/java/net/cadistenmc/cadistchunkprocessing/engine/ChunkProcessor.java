@@ -195,6 +195,34 @@ public final class ChunkProcessor {
                           int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
                           boolean antiBaseFinder, boolean[] reachable, boolean reachabilityCaves,
                           boolean surfaceEntrances, boolean hideSealedCaves) {
+        return process(blocks, ySize, minY, tier, params, oreCamo, oreView, ghostHigh, ghostLow,
+                border, verticalCutLocalY, antiBaseFinder, reachable, reachabilityCaves,
+                surfaceEntrances, hideSealedCaves, false, null);
+    }
+
+    /**
+     * As above, plus {@code fogOfWar}: REAL-tier fog of war. With it on and an
+     * {@code explored} mask supplied (chunk-local, idx = (y&lt;&lt;8)|(z&lt;&lt;4)|x — the
+     * cells the player has actually <em>seen</em> or been near), the engine keeps a
+     * cave-air cell real only if it is explored, reachable (the body bubble around
+     * the player), or within the entrance shell of a genuine opening (a visible
+     * cave mouth in the bubble — kept so the bubble never shows a false-culled
+     * mouth). Everything else below the surface — including surface-connected caves
+     * the player never looked at — solidifies. This is the strongest correct
+     * anti-freecam predicate: a viewer sees nothing the player hasn't seen, plus
+     * mouths (vanilla-visible) and the body bubble.
+     *
+     * <p>Fog composes with the other REAL-tier hiders as an <em>intersection of
+     * keeps</em>: a cell stays real only if every active policy keeps it. Because
+     * fog's keep-set is a strict subset of reachability's, fog subsumes
+     * {@code reachabilityCaves} when both are on. Pure solidify — never void.
+     */
+    public Result process(int[] blocks, int ySize, int minY,
+                          Tier tier, ModeParams params, boolean oreCamo, OreView oreView,
+                          int ghostHigh, int ghostLow, BorderSeed border, int verticalCutLocalY,
+                          boolean antiBaseFinder, boolean[] reachable, boolean reachabilityCaves,
+                          boolean surfaceEntrances, boolean hideSealedCaves,
+                          boolean fogOfWar, boolean[] explored) {
         Result r = new Result();
         final int total = ySize << 8;
         ensureScratch(total);
@@ -222,23 +250,37 @@ public final class ChunkProcessor {
             // DEEP: dist stays -1 everywhere -> nothing revealed -> all hidden.
             solidifyHidden(blocks, ySize, minY, ghostHigh, ghostLow, total, r);
         } else {
-            // REAL tier cave hiding. Two complementary policies, either/both:
-            //   reachabilityCaves — hide every cave the player can't reach (sealed
-            //       bases AND open caves you aren't standing in); aggressive.
-            //   hideSealedCaves   — the gentle option: hide only caves with no
-            //       entrance to the open sky, keeping open caves and the room you
-            //       are in (reachable). Removes only what genuinely has no way in.
+            // REAL tier cave hiding. Up to three complementary keep-policies — a
+            // cell stays real only if EVERY active one keeps it (intersection of
+            // keeps), so the most aggressive wins:
+            //   reachabilityCaves — keep only the cave you can reach; aggressive.
+            //   hideSealedCaves   — keep open (surface-connected) caves + the room
+            //       you're in; the gentle option (hides only entrance-less pockets).
+            //   fogOfWar          — keep only what you've explored (+ body bubble +
+            //       a visible cave-mouth shell); the strongest anti-freecam policy.
             boolean[] reach = (reachable != null && reachable.length >= total) ? reachable : null;
+            boolean[] expl  = (explored != null && explored.length >= total) ? explored : null;
             boolean reachOn = reachabilityCaves && reach != null;
-            if (reachOn || hideSealedCaves) {
+            boolean fogOn   = fogOfWar && expl != null;
+            if (reachOn || hideSealedCaves || fogOn) {
                 classifyCaveAir(blocks, heightMap, ySize, total);
+                boolean[] shell = null;
+                if (fogOn) {
+                    // Entrance shell: cave air within entranceShellDepth of a real
+                    // opening stays real even if unexplored, so the REAL bubble never
+                    // shows a visibly false-culled cave mouth. Computed into the
+                    // (otherwise-idle in REAL) taint scratch; dist is reset after.
+                    Arrays.fill(tainted, 0, total, false);
+                    markRevealedShell(blocks, heightMap, ySize, total, params.entranceShellDepth(), border);
+                    for (int i = 0; i < total; i++) tainted[i] = caveAir[i] && dist[i] >= 0;
+                    shell = tainted;
+                    Arrays.fill(dist, 0, total, -1);
+                }
                 if (hideSealedCaves) {
                     markSurfaceConnected(blocks, ySize, total, border);
-                    solidifySealed(blocks, minY, ghostHigh, ghostLow, total, reach, r);
                 }
-                if (reachOn) {
-                    solidifyUnreachable(blocks, ySize, minY, ghostHigh, ghostLow, total, reach, r);
-                }
+                solidifyRealKeep(blocks, minY, ghostHigh, ghostLow, total,
+                        reach, expl, shell, reachOn, hideSealedCaves, fogOn, r);
             }
         }
 
@@ -262,11 +304,20 @@ public final class ChunkProcessor {
             solidifyArtificial(blocks, heightMap, minY, ghostHigh, ghostLow, r);
         }
 
-        // REAL tier + reachability + anti-base: scrub enclosed man-made blocks the
-        // player can't reach, so a hidden base's walls don't outline it on x-ray.
-        if (antiBaseFinder && tier == Tier.REAL && reachabilityCaves
-                && reachable != null && reachable.length >= total) {
-            solidifyArtificialUnreachable(blocks, heightMap, ySize, minY, ghostHigh, ghostLow, reachable, r);
+        // REAL tier + anti-base: scrub enclosed man-made blocks that touch no KEPT
+        // air (a base you can't reach / haven't seen), so its walls don't outline it
+        // on x-ray. The keep set is reachable ∪ explored, so a base you've walked
+        // into (reachable or explored) stays real while one you haven't is scrubbed.
+        if (antiBaseFinder && tier == Tier.REAL) {
+            boolean[] reach2 = (reachable != null && reachable.length >= total) ? reachable : null;
+            boolean[] expl2  = (explored != null && explored.length >= total) ? explored : null;
+            boolean scrub = (reachabilityCaves && reach2 != null) || (fogOfWar && expl2 != null);
+            if (scrub) {
+                for (int i = 0; i < total; i++) {
+                    seen[i] = (reach2 != null && reach2[i]) || (expl2 != null && expl2[i]);
+                }
+                solidifyArtificialUnreachable(blocks, heightMap, ySize, minY, ghostHigh, ghostLow, seen, r);
+            }
         }
 
         // Surface-entrance camouflage: cap small artificial/water entrance shafts
@@ -278,11 +329,14 @@ public final class ChunkProcessor {
 
         // Vertical culling: solidify everything below the player's depth margin.
         // Runs last so it overrides any revealed cave air / exposed ore below the
-        // cut too (extra anti-xray). Never writes air, so the no-void invariant
-        // holds; the region re-reveals on descent via the vertical resend.
+        // cut too (extra anti-xray). Keeps the connected cave/ravine you're in
+        // (reachable) AND anything you've explored (fog) open down to its floor.
+        // Never writes air, so the no-void invariant holds; the region re-reveals
+        // on descent via the vertical resend.
         if (verticalCutLocalY > 0) {
             boolean[] vReach = (reachable != null && reachable.length >= total) ? reachable : null;
-            verticalCollapse(blocks, heightMap, ySize, minY, ghostHigh, ghostLow, verticalCutLocalY, vReach, r);
+            boolean[] vExpl  = (explored != null && explored.length >= total) ? explored : null;
+            verticalCollapse(blocks, heightMap, ySize, minY, ghostHigh, ghostLow, verticalCutLocalY, vReach, vExpl, r);
         }
 
         r.bytesAfter = estimateBytes(blocks, ySize);
@@ -500,19 +554,39 @@ public final class ChunkProcessor {
     }
 
     /**
-     * REAL-tier reachability: solidify every cave-air cell the player can't reach.
-     * {@code caveAir} already marks only transparent space below the surface, so
-     * surfaces/sky are never touched; a reachable cell (the cave you're in) is
-     * kept. Pure solidify — only ever writes a solid block.
+     * REAL-tier unified solidify. A cave-air cell stays real only if every active
+     * keep-policy keeps it (intersection of keeps); otherwise it is solidified to
+     * the world-correct ghost rock and cleared from {@code caveAir} (so a following
+     * pass doesn't double-count it). Behaviour-identical to the previous
+     * sealed-then-reachability two-pass for any combination of those two, and adds
+     * fog of war as a third policy. Pure solidify — only ever writes a solid block.
+     *
+     * @param reach     reachable mask, or null
+     * @param expl      explored (fog) mask, or null
+     * @param shell     fog entrance-shell mask (cave air near a real opening), or null
+     * @param reachOn   reachability-caves policy active
+     * @param sealedOn  sealed-cave policy active (uses {@code dist}: &gt;=0 == surface-connected)
+     * @param fogOn     fog-of-war policy active
      */
-    private void solidifyUnreachable(int[] blocks, int ySize, int minY,
-                                     int ghostHigh, int ghostLow, int total, boolean[] reachable, Result r) {
+    private void solidifyRealKeep(int[] blocks, int minY, int ghostHigh, int ghostLow, int total,
+                                  boolean[] reach, boolean[] expl, boolean[] shell,
+                                  boolean reachOn, boolean sealedOn, boolean fogOn, Result r) {
         for (int idx = 0; idx < total; idx++) {
-            if (caveAir[idx] && !reachable[idx]) {
-                int worldY = minY + (idx >> 8);
-                blocks[idx] = worldY < 0 ? ghostLow : ghostHigh;
-                r.blocksSolidified++;
-            }
+            if (!caveAir[idx]) continue;
+            boolean kept = true;
+            if (reachOn)  kept &= reach[idx];
+            if (sealedOn) kept &= dist[idx] >= 0 || (reach != null && reach[idx]);
+            // Fog keep = explored ∪ entrance-shell. The player's body bubble is
+            // folded into the explored mask by the ExploredSetService (its body
+            // source), so it is never separately a reach term here — keeping fog's
+            // keep-set a strict subset of reachability's, which is what makes fog
+            // subsume reachability-caves cleanly when both are on.
+            if (fogOn)    kept &= (expl != null && expl[idx]) || (shell != null && shell[idx]);
+            if (kept) continue;
+            int worldY = minY + (idx >> 8);
+            blocks[idx] = worldY < 0 ? ghostLow : ghostHigh;
+            caveAir[idx] = false;
+            r.blocksSolidified++;
         }
     }
 
@@ -558,27 +632,7 @@ public final class ChunkProcessor {
     }
 
     /**
-     * REAL-tier sealed-cave hiding: solidify every cave-air cell with no surface
-     * connection ({@code dist < 0}) that the player also can't reach. Keeps open
-     * caves (surface-connected) and the cave/room you're standing in (reachable),
-     * so it never false-culls a visible cave nor buries the player. Clears the
-     * solidified cells from {@code caveAir} so a following reachability pass doesn't
-     * double-count them. Pure solidify — only ever writes a solid block.
-     */
-    private void solidifySealed(int[] blocks, int minY, int ghostHigh, int ghostLow,
-                                int total, boolean[] reachable, Result r) {
-        for (int idx = 0; idx < total; idx++) {
-            if (!caveAir[idx] || dist[idx] >= 0) continue;       // surface-connected -> keep
-            if (reachable != null && reachable[idx]) continue;   // the cave you're in -> keep
-            int worldY = minY + (idx >> 8);
-            blocks[idx] = worldY < 0 ? ghostLow : ghostHigh;
-            caveAir[idx] = false;
-            r.blocksSolidified++;
-        }
-    }
-
-    /**
-     * REAL-tier reachability + anti-base: solidify man-made blocks below the
+     * REAL-tier anti-base: solidify man-made blocks below the
      * surface that touch no reachable air — i.e. the walls/floor of a base you
      * aren't inside. When you're in the base the interior air is reachable, so the
      * adjacent blocks are kept and it stays real.
@@ -724,15 +778,16 @@ public final class ChunkProcessor {
      * slab over air or ocean). As the player descends, the player cut drops below
      * the surface and reveals the column locally.
      *
-     * <p>If a {@code reachable} mask is supplied, cells the player can reach are
-     * never solidified — so the connected cave/ravine you're standing in stays open
-     * all the way down to its floor (you can look from the top to the bottom of the
-     * shaft you're in), regardless of how small the margin is, while the solid rock
-     * around it still collapses. Pure solidify — never void.
+     * <p>If a {@code reachable} or {@code explored} mask is supplied, cells the
+     * player can reach or has already seen are never solidified — so the connected
+     * cave/ravine you're standing in (and anything fog of war has revealed) stays
+     * open all the way down to its floor (you can look from the top to the bottom of
+     * the shaft you're in), regardless of how small the margin is, while the solid
+     * rock around it still collapses. Pure solidify — never void.
      */
     private void verticalCollapse(int[] blocks, int[] heightMap, int ySize, int minY,
                                   int ghostHigh, int ghostLow, int playerCutLocalY,
-                                  boolean[] reachable, Result r) {
+                                  boolean[] reachable, boolean[] explored, Result r) {
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
                 int col = (z << 4) | x;
@@ -743,6 +798,7 @@ public final class ChunkProcessor {
                 for (int y = 0; y < cut; y++) {
                     int idx = (y << 8) | col;
                     if (reachable != null && reachable[idx]) continue;   // the cave/ravine you're in -> keep
+                    if (explored != null && explored[idx]) continue;     // anything fog has revealed -> keep
                     int g = (minY + y) < 0 ? ghostLow : ghostHigh;
                     if (blocks[idx] != g) {
                         blocks[idx] = g;
