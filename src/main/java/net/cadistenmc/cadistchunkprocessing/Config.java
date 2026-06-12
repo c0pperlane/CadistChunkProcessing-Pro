@@ -21,21 +21,22 @@ public final class Config {
     private volatile boolean oreHiding = true;
     private volatile boolean hideAllOres = false;
     private volatile boolean hideBlockEntities = true;
-    private volatile boolean antiBaseFinder = false;
+    private volatile boolean antiBaseFinder = true;
     private volatile boolean reachabilityOres = false;
     private volatile boolean reachabilityCaves = false;
     private volatile boolean hideSealedCaves = false;
     private volatile boolean surfaceEntrances = false;
-    private volatile boolean fogOfWar = false;
+    private volatile boolean fogOfWar = true;
     private volatile int fogRayDistance = 64;
     private volatile int fogRaysPerScan = 96;
     private volatile int fogMaxChunks = 50000;
+    private volatile int fogBodyRadius = 8;
     private volatile boolean fogPersist = true;
     private volatile int fogExpireDays = 0;
     private volatile boolean chunkCache = true;
     private volatile boolean collapseBiomes = true;
     private volatile boolean verticalCulling = true;
-    private volatile int verticalMargin = 48;
+    private volatile int verticalMargin = 8;
     private volatile int verticalResendBlocks = 16;
     private volatile int oreRevealRadius = 16;
     private volatile int revealDistance = 0;
@@ -60,21 +61,22 @@ public final class Config {
         this.oreHiding = c.getBoolean("ore-hiding", true);
         this.hideAllOres = c.getBoolean("hide-all-ores", false);
         this.hideBlockEntities = c.getBoolean("hide-block-entities", true);
-        this.antiBaseFinder = c.getBoolean("anti-base-finder", false);
+        this.antiBaseFinder = c.getBoolean("anti-base-finder", true);
         this.reachabilityOres = c.getBoolean("reachability-ores", false);
         this.reachabilityCaves = c.getBoolean("reachability-caves", false);
         this.hideSealedCaves = c.getBoolean("hide-sealed-caves", false);
         this.surfaceEntrances = c.getBoolean("surface-entrances", false);
-        this.fogOfWar = c.getBoolean("fog-of-war", false);
+        this.fogOfWar = c.getBoolean("fog-of-war", true);
         this.fogRayDistance = Math.max(8, c.getInt("fog-ray-distance", 64));
         this.fogRaysPerScan = Math.max(8, c.getInt("fog-rays-per-scan", 96));
         this.fogMaxChunks = Math.max(256, c.getInt("fog-max-chunks", 50000));
+        this.fogBodyRadius = Math.max(2, Math.min(64, c.getInt("fog-body-radius", 8)));
         this.fogPersist = c.getBoolean("fog-persist", true);
         this.fogExpireDays = Math.max(0, c.getInt("fog-expire-days", 0));
         this.chunkCache = c.getBoolean("chunk-cache", true);
         this.collapseBiomes = c.getBoolean("collapse-biomes", true);
         this.verticalCulling = c.getBoolean("vertical-culling", true);
-        this.verticalMargin = Math.max(8, c.getInt("vertical-margin", 48));
+        this.verticalMargin = Math.max(8, c.getInt("vertical-margin", 8));
         this.verticalResendBlocks = Math.max(4, c.getInt("vertical-resend-blocks", 16));
         this.oreRevealRadius = Math.max(0, c.getInt("ore-reveal-radius", 16));
         this.revealDistance = Math.max(0, c.getInt("reveal-distance", 0));
@@ -137,6 +139,8 @@ public final class Config {
     public int fogRayDistance() { return fogRayDistance; }
     public int fogRaysPerScan() { return fogRaysPerScan; }
     public int fogMaxChunks() { return fogMaxChunks; }
+    /** The "live radius": air within this many blocks of you is always real (the fog body bubble). */
+    public int fogBodyRadius() { return fogBodyRadius; }
     public boolean fogPersist() { return fogPersist; }
     public int fogExpireDays() { return fogExpireDays; }
     /** Any reachability feature active -> the scanner needs to run. */
@@ -175,6 +179,7 @@ public final class Config {
     public void setSurfaceEntrances(boolean v) { set("surface-entrances", v); }
     public void setFogOfWar(boolean v) { set("fog-of-war", v); }
     public void setFogRayDistance(int v) { set("fog-ray-distance", v); }
+    public void setFogBodyRadius(int v) { set("fog-body-radius", v); }
     public void setChunkCache(boolean v) { set("chunk-cache", v); }
     public void setVerticalCulling(boolean v) { set("vertical-culling", v); }
     public void setVerticalMargin(int v) { set("vertical-margin", v); }

@@ -49,8 +49,6 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ExploredSetService implements Listener {
 
-    /** Body-bubble leash (blocks) around the player, always marked explored. */
-    private static final int BODY_LEASH = 8;
     /** Recompute only after the player moves at least this many blocks (or turns; see {@link #compute}). */
     private static final int MOVE_THRESHOLD = 1;
     /** Scan cadence in ticks. */
@@ -61,8 +59,6 @@ public final class ExploredSetService implements Listener {
     private static final double FRUSTUM_FRACTION = 0.75;
     /** Half-angle (degrees) of the look-frustum cone the frustum rays sample. */
     private static final double FRUSTUM_HALF_ANGLE = 55.0;
-    /** Abort the body flood after this many visits (then just rely on sight). */
-    private static final int BODY_MAX_VISITS = 20_000;
     /** Flush all players' sets to disk at least this often (ms). */
     private static final long FLUSH_INTERVAL_MS = 60_000L;
 
@@ -360,43 +356,54 @@ public final class ExploredSetService implements Listener {
         arr[idx >> 6] |= 1L << (idx & 63);
     }
 
-    /** Small bounded flood of the air/fluid the player's body occupies, leashed to {@link #BODY_LEASH}. */
+    // Reused body-flood scratch (the scan task is single-threaded). Reset after each
+    // flood by clearing only the cells actually visited, so cost stays proportional to
+    // the air around the player, not to the configured radius cubed.
+    private boolean[] bodySeen = new boolean[0];
+    private int[] bodyQueue = new int[0];
+
+    /**
+     * Flood the air/fluid the player's body can reach within the configured "live
+     * radius" ({@code fog-body-radius}); every cell is marked explored, so air within
+     * that radius is always real. A 3-D sphere leash, bounded by its own bounding box.
+     */
     private void bodyFlood(Map<Long, ChunkSnapshot> snaps, int px, int feetY, int pz,
                            int minY, int maxY, SightMarch.Visitor marker) {
-        int lo = Math.max(minY, feetY - BODY_LEASH), hi = Math.min(maxY - 1, feetY + BODY_LEASH + 1);
-        int x0 = px - BODY_LEASH, z0 = pz - BODY_LEASH;
-        int span = BODY_LEASH * 2 + 1;
+        int leash = config.fogBodyRadius();
+        int lo = Math.max(minY, feetY - leash), hi = Math.min(maxY - 1, feetY + leash + 1);
+        int x0 = px - leash, z0 = pz - leash;
+        int span = leash * 2 + 1;
         int h = hi - lo + 1;
         if (h <= 0) return;
-        boolean[] seen = new boolean[span * span * h];
-        int[] queue = new int[seen.length];
+        int total = span * span * h;
+        if (bodySeen.length < total) { bodySeen = new boolean[total]; bodyQueue = new int[total]; }
+        boolean[] seen = bodySeen;
+        int[] queue = bodyQueue;
+        long leashSq = (long) leash * leash;
         int head = 0, tail = 0;
-        long leashSq = (long) BODY_LEASH * BODY_LEASH;
         for (int yy = feetY; yy <= feetY + 1 && yy <= hi; yy++) {
             int rel = rel(px - x0, yy - lo, pz - z0, span);
             if (rel >= 0 && !seen[rel] && passable(snaps, px, yy, pz)) {
                 seen[rel] = true; queue[tail++] = rel;
             }
         }
-        int visits = 0;
         while (head < tail) {
             int rel = queue[head++];
-            if (++visits > BODY_MAX_VISITS) return;
             int rx = rel % span, t = rel / span, rz = t % span, ry = t / span;
             int wx = x0 + rx, wy = lo + ry, wz = z0 + rz;
             marker.mark(wx, wy, wz);
-            if (rx > 0)        tail = relax(snaps, seen, queue, rel - 1, wx - 1, wy, wz, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
-            if (rx < span - 1) tail = relax(snaps, seen, queue, rel + 1, wx + 1, wy, wz, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
-            if (rz > 0)        tail = relax(snaps, seen, queue, rel - span, wx, wy, wz - 1, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
-            if (rz < span - 1) tail = relax(snaps, seen, queue, rel + span, wx, wy, wz + 1, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
-            if (ry > 0)        tail = relax(snaps, seen, queue, rel - span * span, wx, wy - 1, wz, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
-            if (ry < h - 1)    tail = relax(snaps, seen, queue, rel + span * span, wx, wy + 1, wz, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
+            if (rx > 0)        tail = relax(snaps, seen, queue, rel - 1,           wx - 1, wy, wz, px, feetY, pz, leashSq, tail);
+            if (rx < span - 1) tail = relax(snaps, seen, queue, rel + 1,           wx + 1, wy, wz, px, feetY, pz, leashSq, tail);
+            if (rz > 0)        tail = relax(snaps, seen, queue, rel - span,        wx, wy, wz - 1, px, feetY, pz, leashSq, tail);
+            if (rz < span - 1) tail = relax(snaps, seen, queue, rel + span,        wx, wy, wz + 1, px, feetY, pz, leashSq, tail);
+            if (ry > 0)        tail = relax(snaps, seen, queue, rel - span * span, wx, wy - 1, wz, px, feetY, pz, leashSq, tail);
+            if (ry < h - 1)    tail = relax(snaps, seen, queue, rel + span * span, wx, wy + 1, wz, px, feetY, pz, leashSq, tail);
         }
+        for (int i = 0; i < tail; i++) seen[queue[i]] = false;   // reset scratch for the next player/scan
     }
 
     private int relax(Map<Long, ChunkSnapshot> snaps, boolean[] seen, int[] queue, int nRel,
-                      int wx, int wy, int wz, int px, int py, int pz, long leashSq,
-                      int x0, int lo, int z0, int span, int tail) {
+                      int wx, int wy, int wz, int px, int py, int pz, long leashSq, int tail) {
         if (seen[nRel]) return tail;
         long dx = wx - px, dy = wy - py, dz = wz - pz;
         if (dx * dx + dy * dy + dz * dz > leashSq) return tail;

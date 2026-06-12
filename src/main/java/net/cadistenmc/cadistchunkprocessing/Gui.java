@@ -19,10 +19,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Catppuccin-Mocha control panel: master toggles, per-mode tuning sliders, a
- * live stats readout, and one-click presets. All changes persist and apply to
- * newly sent chunks immediately (and nearby chunks are re-sent for online
- * players via {@link CadistChunkProcessingPro#applyChanges()}).
+ * Catppuccin-Mocha control panel. The main page shows the modern, recommended kit
+ * (fog of war + anti-base + ore hiding + the bandwidth tiers); the legacy hiders
+ * that fog of war supersedes live on an "Outdated" sub-page reached from the
+ * bottom-right corner. All changes persist and apply to newly sent chunks
+ * immediately (nearby chunks are re-sent via {@link CadistChunkProcessingPro#applyChanges()}).
  */
 public final class Gui implements Listener {
 
@@ -34,15 +35,21 @@ public final class Gui implements Listener {
     private static final TextColor BLUE = TextColor.color(0x89B4FA);
     private static final TextColor TEXT = TextColor.color(0xCDD6F4);
     private static final TextColor SUB = TextColor.color(0xA6ADC8);
+    private static final TextColor OVERLAY = TextColor.color(0x6C7086);
 
-    private static final int CAVE = 10, ORE = 12, WORLD = 14, STATS = 16;
-    private static final int BLOCK_ENT = 11, CACHE = 15, ANTI_BASE = 13, REACH = 9, REACH_CAVES = 17;
-    private static final int REAL_R = 19, RENDER = 21, SHELL = 23, HOMO = 25, REVEAL_DIST = 26;
-    private static final int ROCK = 29, MODE = 31, HIDE_ALL = 28, ORE_RADIUS = 33;
-    private static final int VCULL = 30, VMARGIN = 32, ENTRANCES = 34, SEALED = 35;
-    private static final int FOG = 27, FOG_DIST = 24;
-    private static final int P_BAL = 38, P_MAX = 40, P_GEN = 42;
-    private static final int CLOSE = 49;
+    // ---- main page (modern kit) ----
+    private static final int FOG = 10, FOG_DIST = 11, FOG_BODY = 12;
+    private static final int ANTI_BASE = 14, ENTRANCES = 16;
+    private static final int ORE = 19, HIDE_ALL = 20, BLOCK_ENT = 21, ORE_RADIUS = 22;
+    private static final int CAVE = 24, VCULL = 25, VMARGIN = 26;
+    private static final int REAL_R = 28, RENDER = 29, SHELL = 30, HOMO = 31, ROCK = 32, MODE = 33, CACHE = 34;
+    private static final int P_BAL = 38, P_MAX = 40, P_GEN = 42, WORLD = 44;
+    private static final int STATS = 45, CLOSE = 49, OUTDATED = 53;
+
+    // ---- outdated page (superseded by fog of war) ----
+    private static final int O_REACH = 20, O_REACH_CAVES = 22, O_SEALED = 24;
+    private static final int O_REVEAL_DIST = 30, O_INFO = 4;
+    private static final int O_BACK = 45, O_CLOSE = 49;
 
     private final CadistChunkProcessingPro plugin;
 
@@ -52,65 +59,107 @@ public final class Gui implements Listener {
 
     private static final class Holder implements InventoryHolder {
         Inventory inv;
+        boolean outdated;
         @Override public Inventory getInventory() { return inv; }
     }
 
     public void open(Player player) {
+        openPage(player, false);
+    }
+
+    private void openPage(Player player, boolean outdated) {
         Holder holder = new Holder();
+        holder.outdated = outdated;
         Inventory inv = Bukkit.createInventory(holder, 54,
-                Component.text("CadistChunkProcessing Pro", MAUVE, TextDecoration.BOLD));
+                Component.text("CadistChunkProcessing Pro" + (outdated ? " — Outdated" : ""),
+                        MAUVE, TextDecoration.BOLD));
         holder.inv = inv;
-        render(inv, player);
+        if (outdated) renderOutdated(inv); else renderMain(inv, player);
         player.openInventory(inv);
     }
 
-    private void render(Inventory inv, Player player) {
+    // ---- main page ----
+
+    private void renderMain(Inventory inv, Player player) {
         Config c = plugin.cfg();
         ModeParams p = c.params();
         ItemStack pane = pane();
         for (int i = 0; i < 54; i++) inv.setItem(i, pane);
 
-        inv.setItem(CAVE, toggle(Material.DEEPSLATE, "Cave Hiding", c.caveHiding(),
-                "Solidify hidden caves below the surface."));
-        inv.setItem(ORE, toggle(Material.DIAMOND_ORE, "Ore Hiding (anti-xray)", c.oreHiding(),
-                "Camouflage ores you cannot legitimately see."));
-        inv.setItem(BLOCK_ENT, toggle(Material.CHEST, "Hide block entities (anti-xray)", c.hideBlockEntities(),
-                "Strip buried chests/spawners from hidden chunks so they can't be packet-xrayed."));
-        inv.setItem(REACH, item(c.reachabilityOres() ? Material.RECOVERY_COMPASS : Material.COMPASS,
-                Component.text("Reachability ore reveal", c.reachabilityOres() ? GREEN : RED),
-                List.of(line(c.reachabilityOres() ? "Enabled" : "Disabled", c.reachabilityOres() ? GREEN : RED),
-                        line("Show ore only where it touches air you can", SUB),
-                        line("actually reach (the cave you're in) - never", SUB),
-                        line("a radius that peeks through walls.", SUB),
-                        line("Falls back to the reveal radius while warming", SUB),
-                        line("up. Click to toggle.", SUB))));
-        inv.setItem(REACH_CAVES, item(c.reachabilityCaves() ? Material.STONE : Material.GLASS,
-                Component.text("Reachability cave hiding", c.reachabilityCaves() ? GREEN : RED),
-                List.of(line(c.reachabilityCaves() ? "Enabled" : "Disabled", c.reachabilityCaves() ? GREEN : RED),
-                        line("Solidify any cave/base you can't reach, even", SUB),
-                        line("up close - only the cave you're standing in", SUB),
-                        line("stays real. Freecam can't see the rest (it's", SUB),
-                        line("never sent). Mining into a hidden pocket", SUB),
-                        line("reveals it within a moment. Pairs with cave", SUB),
-                        line("hiding + anti-base. Click to toggle.", SUB))));
+        // Headline: fog of war + its two ranges.
+        inv.setItem(FOG, item(c.fogOfWar() ? Material.SCULK_CATALYST : Material.LIGHT_GRAY_STAINED_GLASS,
+                Component.text("Fog of war", c.fogOfWar() ? GREEN : RED),
+                List.of(line(c.fogOfWar() ? "Enabled" : "Disabled", c.fogOfWar() ? GREEN : RED),
+                        line("Only what you've actually SEEN or been near is", SUB),
+                        line("ever sent. Freecam learns nothing you haven't", SUB),
+                        line("seen - the strongest anti-xray. Cave mouths and", SUB),
+                        line("the live bubble around you stay real, so nothing", SUB),
+                        line("visible is false-culled. Subsumes the Outdated", SUB),
+                        line("hiders. Click to toggle.", SUB))));
+        inv.setItem(FOG_DIST, slider(Material.SPYGLASS, "Fog ray distance", c.fogRayDistance(), "blocks",
+                "How far sight rays reveal. Higher = see/reveal farther, more cost. Left +8 / Right -8."));
+        inv.setItem(FOG_BODY, slider(Material.HEART_OF_THE_SEA, "Fog live radius", c.fogBodyRadius(), "blocks",
+                "The bubble around you that's ALWAYS real, even unseen (digging safety). 2-64. Left +2 / Right -2."));
+
         inv.setItem(ANTI_BASE, item(c.antiBaseFinder() ? Material.SCULK_SENSOR : Material.SCULK_SHRIEKER,
                 Component.text("Anti-Base Finder", c.antiBaseFinder() ? GREEN : RED),
                 List.of(line(c.antiBaseFinder() ? "Enabled" : "Disabled", c.antiBaseFinder() ? GREEN : RED),
-                        line("Aggressively hides buried bases.", SUB),
-                        line("Man-made tunnels, ladder/water-lift shafts and", SUB),
-                        line("rooms stay solid even at an opening, and base", SUB),
-                        line("blocks below ground (ladders, rails, lamps,", SUB),
-                        line("doors, building blocks) read as plain rock.", SUB),
-                        line("Natural caves still reveal; your base re-appears", SUB),
-                        line("up close. Click to toggle.", SUB))));
+                        line("Scrubs a base's solid man-made BLOCKS (walls,", SUB),
+                        line("floors, ladders, lamps, doors) to plain rock -", SUB),
+                        line("fog of war hides cave AIR, but not solid build", SUB),
+                        line("blocks, so the two together fully hide a base", SUB),
+                        line("you haven't entered. Your own (explored) base", SUB),
+                        line("stays real. Click to toggle.", SUB))));
+        inv.setItem(ENTRANCES, item(c.surfaceEntrances() ? Material.GRASS_BLOCK : Material.IRON_TRAPDOOR,
+                Component.text("Surface-entrance camouflage", c.surfaceEntrances() ? GREEN : RED),
+                List.of(line(c.surfaceEntrances() ? "Enabled" : "Disabled", c.surfaceEntrances() ? GREEN : RED),
+                        line("Hide small base entrances at the surface from", SUB),
+                        line("afar: a trapdoor/ladder shaft or water-lift in", SUB),
+                        line("a narrow pit is capped and blended into the", SUB),
+                        line("ground. Shows again up close. Click to toggle.", SUB))));
+
+        // Anti-xray ores.
+        inv.setItem(ORE, toggle(Material.DIAMOND_ORE, "Ore Hiding (anti-xray)", c.oreHiding(),
+                "Camouflage ores you cannot legitimately see."));
+        inv.setItem(HIDE_ALL, toggle(Material.SCULK, "Paranoid anti-xray", c.hideAllOres(),
+                "ON: hide every ore. OFF: show surface veins + ores in the cave you're in."));
+        inv.setItem(BLOCK_ENT, toggle(Material.CHEST, "Hide block entities (anti-xray)", c.hideBlockEntities(),
+                "Strip buried chests/spawners from hidden chunks so they can't be packet-xrayed."));
+        inv.setItem(ORE_RADIUS, slider(Material.IRON_ORE, "Ore reveal radius", c.oreRevealRadius(), "blocks",
+                "How close an exposed ore must be to stay visible (off when paranoid)."));
+
+        // Bandwidth tiers + vertical cull.
+        inv.setItem(CAVE, toggle(Material.DEEPSLATE, "Cave Hiding", c.caveHiding(),
+                "Solidify hidden caves below the surface (the distance bandwidth saving)."));
+        inv.setItem(VCULL, toggle(Material.ELYTRA, "Vertical culling", c.verticalCulling(),
+                "Solidify the deep column far below you; reveals as you descend (fog keeps what you've seen)."));
+        inv.setItem(VMARGIN, slider(Material.LADDER, "Vertical margin", c.verticalMargin(), "blocks",
+                "Blocks kept real below your feet before culling. Higher = safer for fast drops."));
+
+        // Mode tuning.
+        inv.setItem(REAL_R, slider(Material.SPYGLASS, "Real radius", p.realRadius(), "chunks",
+                "Chunks around you kept fully real (digging always correct)."));
+        inv.setItem(RENDER, slider(Material.ENDER_EYE, "Cave render distance", p.caveRenderDistance(), "chunks",
+                "Within this, cave mouths still reveal inward; beyond it, fully hidden."));
+        inv.setItem(SHELL, slider(Material.TORCH, "Entrance shell depth", p.entranceShellDepth(), "blocks",
+                "How far a visible cave opening reveals inward."));
+        inv.setItem(HOMO, slider(Material.STONE, "Homogenize below", p.homogenizeBelow(), "blocks",
+                "Deep sections this far under the surface collapse to one block."));
+        inv.setItem(ROCK, toggle(Material.TUFF, "Rock collapse (max savings)", p.rockCollapse(),
+                "Deep tier merges all rock into the ghost block."));
+        inv.setItem(MODE, item(Material.COMPARATOR, Component.text("Mode: " + c.mode().display, MAUVE),
+                List.of(line("Click to cycle", SUB))));
 
         boolean cache = c.chunkCache();
         inv.setItem(CACHE, item(cache ? Material.ENDER_CHEST : Material.CLOCK,
                 Component.text("Processing: " + (cache ? "CACHED" : "LIVE"), cache ? GREEN : YELLOW),
                 List.of(line(cache ? "Far chunks processed once & reused (efficient)"
                                 : "Every chunk reprocessed on each send (testing)", SUB),
-                        line("Click to switch CACHED <-> LIVE", SUB),
-                        line("LIVE = watch processing happen in production", SUB))));
+                        line("Click to switch CACHED <-> LIVE", SUB))));
+
+        inv.setItem(P_BAL, preset(Mode.BALANCED, c.mode()));
+        inv.setItem(P_MAX, preset(Mode.MAX_SAVINGS, c.mode()));
+        inv.setItem(P_GEN, preset(Mode.GENEROUS, c.mode()));
 
         boolean worldOn = c.worldEnabled(player.getWorld().getName());
         inv.setItem(WORLD, item(Material.GRASS_BLOCK,
@@ -120,76 +169,54 @@ public final class Gui implements Listener {
                         line("(no effect while enabled-worlds is \"*\")", SUB))));
 
         inv.setItem(STATS, statsItem());
+        inv.setItem(OUTDATED, item(Material.DEAD_BUSH, Component.text("Outdated features", OVERLAY),
+                List.of(line("Legacy hiders that fog of war supersedes:", SUB),
+                        line("reachability ore/cave reveal, sealed-cave", SUB),
+                        line("hiding, reveal-distance leash. Kept for tuning", SUB),
+                        line("if you run without fog. Click to open.", SUB))));
+        inv.setItem(CLOSE, item(Material.BARRIER, Component.text("Close", RED), List.of()));
+    }
 
-        inv.setItem(REAL_R, slider(Material.SPYGLASS, "Real radius", p.realRadius(), "chunks",
-                "Chunks around you kept fully real (digging always correct)."));
-        inv.setItem(RENDER, slider(Material.ENDER_EYE, "Cave render distance", p.caveRenderDistance(), "chunks",
-                "Within this, cave mouths still reveal inward; beyond it, fully hidden."));
-        inv.setItem(SHELL, slider(Material.TORCH, "Entrance shell depth", p.entranceShellDepth(), "blocks",
-                "How far a visible cave opening reveals inward."));
-        inv.setItem(HOMO, slider(Material.STONE, "Homogenize below", p.homogenizeBelow(), "blocks",
-                "Deep sections this far under the surface collapse to one block."));
-        int rd = c.revealDistance();
-        inv.setItem(REVEAL_DIST, item(Material.LEAD,
-                Component.text("Reveal distance: " + (rd == 0 ? "unlimited" : rd + " blocks"), TEXT),
-                List.of(line("Leash on how far reachability reveals around you.", SUB),
-                        line("Caves/air beyond this (3D) are hidden even if", SUB),
-                        line("connected, and reveal as you approach. 0 = off", SUB),
-                        line("(reveal the whole connected system). Needs a", SUB),
-                        line("reachability feature on. Left +8 / Right -8", SUB))));
+    // ---- outdated page ----
 
-        inv.setItem(ROCK, toggle(Material.TUFF, "Rock collapse (max savings)", p.rockCollapse(),
-                "Deep tier merges all rock into the ghost block."));
-        inv.setItem(MODE, item(Material.COMPARATOR,
-                Component.text("Mode: " + c.mode().display, MAUVE),
-                List.of(line("Click to cycle", SUB))));
+    private void renderOutdated(Inventory inv) {
+        Config c = plugin.cfg();
+        ItemStack pane = pane();
+        for (int i = 0; i < 54; i++) inv.setItem(i, pane);
 
-        inv.setItem(VCULL, toggle(Material.ELYTRA, "Vertical culling", c.verticalCulling(),
-                "Solidify the deep column far below you (in the real bubble); reveals as you descend."));
-        inv.setItem(VMARGIN, slider(Material.LADDER, "Vertical margin", c.verticalMargin(), "blocks",
-                "Blocks kept real below your feet before culling. Higher = safer for fast drops."));
+        inv.setItem(O_INFO, item(Material.DEAD_BUSH, Component.text("Outdated features", OVERLAY),
+                List.of(line("Fog of war (on the main page) does all of this", SUB),
+                        line("better and more aggressively. These remain only", SUB),
+                        line("for servers that run WITHOUT fog of war.", SUB))));
 
-        inv.setItem(ENTRANCES, item(c.surfaceEntrances() ? Material.GRASS_BLOCK : Material.IRON_TRAPDOOR,
-                Component.text("Surface-entrance camouflage", c.surfaceEntrances() ? GREEN : RED),
-                List.of(line(c.surfaceEntrances() ? "Enabled" : "Disabled", c.surfaceEntrances() ? GREEN : RED),
-                        line("Hide small base entrances at the surface from", SUB),
-                        line("afar: a trapdoor/ladder shaft or water-lift in", SUB),
-                        line("a narrow pit is capped and blended into the", SUB),
-                        line("ground. Shows again up close so you can use it.", SUB),
-                        line("Natural ravines/cave mouths are left alone.", SUB),
+        inv.setItem(O_REACH, item(c.reachabilityOres() ? Material.RECOVERY_COMPASS : Material.COMPASS,
+                Component.text("Reachability ore reveal", c.reachabilityOres() ? GREEN : RED),
+                List.of(line(c.reachabilityOres() ? "Enabled" : "Disabled", c.reachabilityOres() ? GREEN : RED),
+                        line("Show ore only where it touches air you can", SUB),
+                        line("actually reach. Superseded by fog of war.", SUB),
                         line("Click to toggle.", SUB))));
-        inv.setItem(SEALED, item(c.hideSealedCaves() ? Material.STONE_BRICKS : Material.GLOW_BERRIES,
+        inv.setItem(O_REACH_CAVES, item(c.reachabilityCaves() ? Material.STONE : Material.GLASS,
+                Component.text("Reachability cave hiding", c.reachabilityCaves() ? GREEN : RED),
+                List.of(line(c.reachabilityCaves() ? "Enabled" : "Disabled", c.reachabilityCaves() ? GREEN : RED),
+                        line("Solidify any cave you can't reach. Fog of war", SUB),
+                        line("subsumes this (hides what you haven't SEEN,", SUB),
+                        line("not merely can't reach). Click to toggle.", SUB))));
+        inv.setItem(O_SEALED, item(c.hideSealedCaves() ? Material.STONE_BRICKS : Material.GLOW_BERRIES,
                 Component.text("Sealed-cave hiding", c.hideSealedCaves() ? GREEN : RED),
                 List.of(line(c.hideSealedCaves() ? "Enabled" : "Disabled", c.hideSealedCaves() ? GREEN : RED),
-                        line("Solidify caves with NO entrance to the sky -", SUB),
-                        line("walled-off pockets and sealed rooms - even up", SUB),
-                        line("close. Open caves and the room you're in stay", SUB),
-                        line("real, so nothing visible is false-culled. The", SUB),
-                        line("gentle sibling of reachability cave hiding;", SUB),
-                        line("uses the same scanner. Click to toggle.", SUB))));
-        inv.setItem(FOG, item(c.fogOfWar() ? Material.SCULK_CATALYST : Material.LIGHT_GRAY_STAINED_GLASS,
-                Component.text("Fog of war", c.fogOfWar() ? GREEN : RED),
-                List.of(line(c.fogOfWar() ? "Enabled" : "Disabled", c.fogOfWar() ? GREEN : RED),
-                        line("Only what you've actually SEEN or been near is", SUB),
-                        line("ever sent. Freecam learns nothing you haven't", SUB),
-                        line("seen - the strongest anti-xray. Cave mouths and", SUB),
-                        line("the ~8-block bubble around you stay real, so", SUB),
-                        line("nothing visible is false-culled. Subsumes", SUB),
-                        line("reachability-caves when both are on. Runs the", SUB),
-                        line("bounded eye-raycast scanner - watch /tps on a", SUB),
-                        line("very large server. Click to toggle.", SUB))));
-        inv.setItem(FOG_DIST, slider(Material.SPYGLASS, "Fog ray distance", c.fogRayDistance(), "blocks",
-                "How far sight rays reveal. Higher = see/reveal farther, more cost. Left +8 / Right -8."));
-        inv.setItem(HIDE_ALL, toggle(Material.SCULK, "Paranoid anti-xray", c.hideAllOres(),
-                "ON: hide every ore. OFF: show surface veins + ores in the cave you're in."));
-        inv.setItem(ORE_RADIUS, slider(Material.IRON_ORE, "Ore reveal radius", c.oreRevealRadius(), "blocks",
-                "How close an exposed ore must be to stay visible (off when paranoid)."));
+                        line("Solidify caves with no entrance to the sky.", SUB),
+                        line("The gentle sibling of reachability hiding;", SUB),
+                        line("superseded by fog of war. Click to toggle.", SUB))));
+        inv.setItem(O_REVEAL_DIST, item(Material.LEAD,
+                Component.text("Reveal distance: " + (c.revealDistance() == 0 ? "unlimited" : c.revealDistance() + " blocks"), TEXT),
+                List.of(line("Leash on how far reachability reveals around", SUB),
+                        line("you. Only shapes the reachability scanner above;", SUB),
+                        line("fog of war has its own ray distance. 0 = off.", SUB),
+                        line("Left +8 / Right -8", SUB))));
 
-        inv.setItem(P_BAL, preset(Mode.BALANCED, c.mode()));
-        inv.setItem(P_MAX, preset(Mode.MAX_SAVINGS, c.mode()));
-        inv.setItem(P_GEN, preset(Mode.GENEROUS, c.mode()));
-
-        inv.setItem(CLOSE, item(Material.BARRIER, Component.text("Close", RED), List.of()));
+        inv.setItem(O_BACK, item(Material.ARROW, Component.text("Back", GREEN),
+                List.of(line("Return to the main panel", SUB))));
+        inv.setItem(O_CLOSE, item(Material.BARRIER, Component.text("Close", RED), List.of()));
     }
 
     private ItemStack statsItem() {
@@ -211,13 +238,9 @@ public final class Gui implements Listener {
         lore.add(line("Ores hidden: " + m.oresHidden(), SUB));
         lore.add(line("Cave blocks solidified: " + m.blocksSolidified(), SUB));
         Config c = plugin.cfg();
-        lore.add(line("Anti-base: " + (c.antiBaseFinder() ? "on" : "off")
-                + "   Reach ores: " + (c.reachabilityOres() ? "on" : "off")
-                + "   Reach caves: " + (c.reachabilityCaves() ? "on" : "off"), SUB));
-        lore.add(line("Sealed caves: " + (c.hideSealedCaves() ? "on" : "off")
-                + "   Surface entrances: " + (c.surfaceEntrances() ? "on" : "off"), SUB));
-        lore.add(line("Fog of war: " + (c.fogOfWar() ? "on (rays " + c.fogRayDistance() + "b)" : "off"), SUB));
-        lore.add(line("Reveal distance: " + (c.revealDistance() == 0 ? "unlimited" : c.revealDistance() + " blocks"), SUB));
+        lore.add(line("Fog of war: " + (c.fogOfWar()
+                ? "on (rays " + c.fogRayDistance() + "b, live " + c.fogBodyRadius() + "b)" : "off")
+                + "   Anti-base: " + (c.antiBaseFinder() ? "on" : "off"), SUB));
         return item(Material.BOOK, Component.text("Live statistics", YELLOW), lore);
     }
 
@@ -232,41 +255,54 @@ public final class Gui implements Listener {
 
         Config c = plugin.cfg();
         boolean left = e.isLeftClick();
-
         boolean changed = true;
+
+        if (holder.outdated) {
+            switch (e.getRawSlot()) {
+                case O_REACH -> c.setReachabilityOres(!c.reachabilityOres());
+                case O_REACH_CAVES -> c.setReachabilityCaves(!c.reachabilityCaves());
+                case O_SEALED -> c.setHideSealedCaves(!c.hideSealedCaves());
+                case O_REVEAL_DIST -> c.setRevealDistance(clamp(c.revealDistance() + (left ? 8 : -8), 0, 256));
+                case O_BACK -> { openPage(player, false); return; }
+                case O_CLOSE -> { player.closeInventory(); return; }
+                default -> changed = false;
+            }
+            if (changed) plugin.applyChanges();
+            renderOutdated(e.getView().getTopInventory());
+            return;
+        }
+
         switch (e.getRawSlot()) {
-            case CAVE -> c.setCaveHiding(!c.caveHiding());
-            case ORE -> c.setOreHiding(!c.oreHiding());
-            case BLOCK_ENT -> c.setHideBlockEntities(!c.hideBlockEntities());
-            case ANTI_BASE -> c.setAntiBaseFinder(!c.antiBaseFinder());
-            case REACH -> c.setReachabilityOres(!c.reachabilityOres());
-            case REACH_CAVES -> c.setReachabilityCaves(!c.reachabilityCaves());
-            case SEALED -> c.setHideSealedCaves(!c.hideSealedCaves());
             case FOG -> c.setFogOfWar(!c.fogOfWar());
             case FOG_DIST -> c.setFogRayDistance(clamp(c.fogRayDistance() + (left ? 8 : -8), 8, 256));
+            case FOG_BODY -> c.setFogBodyRadius(clamp(c.fogBodyRadius() + (left ? 2 : -2), 2, 64));
+            case ANTI_BASE -> c.setAntiBaseFinder(!c.antiBaseFinder());
             case ENTRANCES -> c.setSurfaceEntrances(!c.surfaceEntrances());
-            case CACHE -> c.setChunkCache(!c.chunkCache());
+            case ORE -> c.setOreHiding(!c.oreHiding());
+            case HIDE_ALL -> c.setHideAllOres(!c.hideAllOres());
+            case BLOCK_ENT -> c.setHideBlockEntities(!c.hideBlockEntities());
+            case ORE_RADIUS -> c.setOreRevealRadius(clamp(c.oreRevealRadius() + (left ? 2 : -2), 0, 64));
+            case CAVE -> c.setCaveHiding(!c.caveHiding());
             case VCULL -> c.setVerticalCulling(!c.verticalCulling());
             case VMARGIN -> c.setVerticalMargin(clamp(c.verticalMargin() + (left ? 8 : -8), 8, 128));
-            case HIDE_ALL -> c.setHideAllOres(!c.hideAllOres());
-            case ORE_RADIUS -> c.setOreRevealRadius(clamp(c.oreRevealRadius() + (left ? 2 : -2), 0, 64));
-            case REVEAL_DIST -> c.setRevealDistance(clamp(c.revealDistance() + (left ? 8 : -8), 0, 256));
-            case WORLD -> c.toggleWorld(player.getWorld().getName());
-            case ROCK -> c.setCurrentModeBool("rock-collapse", !c.params().rockCollapse());
-            case MODE -> c.setMode(c.mode().next());
             case REAL_R -> c.setCurrentModeInt("real-radius", clamp(c.params().realRadius() + (left ? 1 : -1), 2, 16));
             case RENDER -> c.setCurrentModeInt("cave-render-distance", clamp(c.params().caveRenderDistance() + (left ? 1 : -1), 2, 32));
             case SHELL -> c.setCurrentModeInt("entrance-shell-depth", clamp(c.params().entranceShellDepth() + (left ? 1 : -1), 0, 32));
             case HOMO -> c.setCurrentModeInt("homogenize-below", clamp(c.params().homogenizeBelow() + (left ? 4 : -4), 0, 128));
+            case ROCK -> c.setCurrentModeBool("rock-collapse", !c.params().rockCollapse());
+            case MODE -> c.setMode(c.mode().next());
+            case CACHE -> c.setChunkCache(!c.chunkCache());
             case P_BAL -> c.setMode(Mode.BALANCED);
             case P_MAX -> c.setMode(Mode.MAX_SAVINGS);
             case P_GEN -> c.setMode(Mode.GENEROUS);
+            case WORLD -> c.toggleWorld(player.getWorld().getName());
+            case OUTDATED -> { openPage(player, true); return; }
             case CLOSE -> { player.closeInventory(); return; }
             case STATS -> changed = false;
             default -> changed = false;
         }
         if (changed) plugin.applyChanges();
-        render(e.getView().getTopInventory(), player);
+        renderMain(e.getView().getTopInventory(), player);
     }
 
     // ---- item helpers ----
