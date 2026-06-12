@@ -134,6 +134,36 @@ reveal-distance: 0
 #   terrain and can't be hidden this way - seal the entrance. Off by default.
 surface-entrances: false
 
+# Fog of war (REAL tier). The strongest anti-xray/anti-freecam policy: only the
+# cells you have actually SEEN (eye raycasts) or been near (an 8-block body
+# bubble) are ever sent real - everything else below the surface reads as solid
+# rock, even open caves you could walk into but never looked at. A freecam/x-ray
+# client therefore learns nothing you haven't already legitimately seen.
+#   - Visible cave mouths in your bubble still read as mouths (an entrance shell),
+#     and the bubble around you is always real, so nothing visible is false-culled.
+#   - Reveals are monotone within a session (no flicker); looking at something
+#     reveals it before you reach it; mining into a fogged pocket reveals it within
+#     a moment (re-scan + re-send - never void).
+#   - Subsumes reachability-caves when both are on (fog is the stricter keep).
+#   - Runs a bounded, throttled main-thread eye-raycast scan per moving/looking
+#     player - watch /tps on a very large server. Off by default.
+# Exploration persists to disk per player per world (see fog-persist) so it
+# survives restarts. A settings change still resets the live set; it rebuilds
+# within a second of moving/looking and reloads from disk on the next join.
+fog-of-war: false
+# How far (blocks) sight rays reveal. Higher sees/reveals farther at more cost.
+fog-ray-distance: 64
+# Sight rays cast per player per scan (a global per-tick governor caps the total).
+fog-rays-per-scan: 96
+# Per-player cap on remembered explored chunks (farthest are evicted past this).
+fog-max-chunks: 50000
+# Save/load explored sets to plugins/<this>/explored/<world>/<player>.ccpf so
+# exploration survives restarts. Files are safe to delete at any time (players
+# re-explore; hiding only ever increases). true to persist, false for in-memory.
+fog-persist: true
+# Forget exploration older than this many days at load (0 = remember forever).
+fog-expire-days: 0
+
 # Extra blocks to treat as ore (anti-xray), matched by name substring against
 # the block id. Useful for modded/datapack ores. Examples below (commented):
 extra-ores: []

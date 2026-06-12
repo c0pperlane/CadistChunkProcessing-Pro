@@ -40,6 +40,7 @@ public final class Gui implements Listener {
     private static final int REAL_R = 19, RENDER = 21, SHELL = 23, HOMO = 25, REVEAL_DIST = 26;
     private static final int ROCK = 29, MODE = 31, HIDE_ALL = 28, ORE_RADIUS = 33;
     private static final int VCULL = 30, VMARGIN = 32, ENTRANCES = 34, SEALED = 35;
+    private static final int FOG = 27, FOG_DIST = 24;
     private static final int P_BAL = 38, P_MAX = 40, P_GEN = 42;
     private static final int CLOSE = 49;
 
@@ -166,6 +167,19 @@ public final class Gui implements Listener {
                         line("real, so nothing visible is false-culled. The", SUB),
                         line("gentle sibling of reachability cave hiding;", SUB),
                         line("uses the same scanner. Click to toggle.", SUB))));
+        inv.setItem(FOG, item(c.fogOfWar() ? Material.SCULK_CATALYST : Material.LIGHT_GRAY_STAINED_GLASS,
+                Component.text("Fog of war", c.fogOfWar() ? GREEN : RED),
+                List.of(line(c.fogOfWar() ? "Enabled" : "Disabled", c.fogOfWar() ? GREEN : RED),
+                        line("Only what you've actually SEEN or been near is", SUB),
+                        line("ever sent. Freecam learns nothing you haven't", SUB),
+                        line("seen - the strongest anti-xray. Cave mouths and", SUB),
+                        line("the ~8-block bubble around you stay real, so", SUB),
+                        line("nothing visible is false-culled. Subsumes", SUB),
+                        line("reachability-caves when both are on. Runs the", SUB),
+                        line("bounded eye-raycast scanner - watch /tps on a", SUB),
+                        line("very large server. Click to toggle.", SUB))));
+        inv.setItem(FOG_DIST, slider(Material.SPYGLASS, "Fog ray distance", c.fogRayDistance(), "blocks",
+                "How far sight rays reveal. Higher = see/reveal farther, more cost. Left +8 / Right -8."));
         inv.setItem(HIDE_ALL, toggle(Material.SCULK, "Paranoid anti-xray", c.hideAllOres(),
                 "ON: hide every ore. OFF: show surface veins + ores in the cave you're in."));
         inv.setItem(ORE_RADIUS, slider(Material.IRON_ORE, "Ore reveal radius", c.oreRevealRadius(), "blocks",
@@ -202,6 +216,7 @@ public final class Gui implements Listener {
                 + "   Reach caves: " + (c.reachabilityCaves() ? "on" : "off"), SUB));
         lore.add(line("Sealed caves: " + (c.hideSealedCaves() ? "on" : "off")
                 + "   Surface entrances: " + (c.surfaceEntrances() ? "on" : "off"), SUB));
+        lore.add(line("Fog of war: " + (c.fogOfWar() ? "on (rays " + c.fogRayDistance() + "b)" : "off"), SUB));
         lore.add(line("Reveal distance: " + (c.revealDistance() == 0 ? "unlimited" : c.revealDistance() + " blocks"), SUB));
         return item(Material.BOOK, Component.text("Live statistics", YELLOW), lore);
     }
@@ -227,6 +242,8 @@ public final class Gui implements Listener {
             case REACH -> c.setReachabilityOres(!c.reachabilityOres());
             case REACH_CAVES -> c.setReachabilityCaves(!c.reachabilityCaves());
             case SEALED -> c.setHideSealedCaves(!c.hideSealedCaves());
+            case FOG -> c.setFogOfWar(!c.fogOfWar());
+            case FOG_DIST -> c.setFogRayDistance(clamp(c.fogRayDistance() + (left ? 8 : -8), 8, 256));
             case ENTRANCES -> c.setSurfaceEntrances(!c.surfaceEntrances());
             case CACHE -> c.setChunkCache(!c.chunkCache());
             case VCULL -> c.setVerticalCulling(!c.verticalCulling());

@@ -37,8 +37,10 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
     private final BandwidthMonitor monitor;
     private final BlockClassifier classifier;
     private final ReachabilityService reachability;
+    private final ExploredSetService explored;
 
     private final ThreadLocal<int[]> blocks = ThreadLocal.withInitial(() -> new int[24 * 16 * 256]);
+    private final ThreadLocal<boolean[]> exploredBuf = ThreadLocal.withInitial(() -> new boolean[0]);
     private final ThreadLocal<ChunkProcessor> processor;
 
     /**
@@ -61,7 +63,7 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
     public ChunkPacketInterceptor(CadistChunkProcessingPro plugin, Config config, WorldMeta worldMeta,
                                   PlayerTracker tracker, BorderCache borderCache, ProcessedChunkCache chunkCache,
                                   BandwidthMonitor monitor, BlockClassifier classifier,
-                                  ReachabilityService reachability) {
+                                  ReachabilityService reachability, ExploredSetService explored) {
         super(PacketListenerPriority.NORMAL);
         this.plugin = plugin;
         this.config = config;
@@ -72,6 +74,7 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
         this.monitor = monitor;
         this.classifier = classifier;
         this.reachability = reachability;
+        this.explored = explored;
         this.processor = ThreadLocal.withInitial(() -> new ChunkProcessor(classifier));
     }
 
@@ -96,7 +99,7 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
         boolean caves = config.caveHiding();
         boolean ores = config.oreHiding();
         if (!caves && !ores && !config.reachabilityCaves() && !config.surfaceEntrances()
-                && !config.hideSealedCaves()) return;
+                && !config.hideSealedCaves() && !config.fogOfWar()) return;
 
         UUID worldId = tracker.worldUID(id);
         if (worldId == null) return;
@@ -158,9 +161,21 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
         // is never solidified around you; it stays off until the scan warms up.
         boolean sealed = config.hideSealedCaves() && reachSnap;
 
-        // SHELL always seam-seeds; REAL needs the seed too when sealed-cave hiding is
-        // on, so a cave open via a neighbour isn't mistaken for entrance-less.
-        BorderSeed seed = (tier == Tier.SHELL || sealed)
+        // Fog of war (REAL tier): the cells the player has actually seen / been near.
+        // Inflated from the service's compact per-chunk bitset into a reused
+        // thread-local boolean[] so there is no per-packet allocation. Null while
+        // warming up, so fog gracefully does nothing until the first scan lands.
+        // Once a snapshot exists, ALWAYS supply a mask: a chunk the player has never
+        // explored has no bitset, and must read as all-false (fully fogged) — not
+        // null, which the engine treats as "fog off" and would leave it fully real.
+        boolean fogSnap = tier == Tier.REAL && config.fogOfWar()
+                && explored.hasSnapshot(id, worldId, ySize);
+        boolean[] fogMask = fogSnap ? inflate(explored.bitsFor(id, cx, cz), ySize) : null;
+
+        // SHELL always seam-seeds; REAL needs the seed too when sealed-cave hiding or
+        // fog of war is on, so a cave open via a neighbour isn't mistaken for
+        // entrance-less (sealed) / gets its visible-mouth shell seeded (fog).
+        BorderSeed seed = (tier == Tier.SHELL || sealed || fogSnap)
                 ? borderCache.seedFor(worldId, cx, cz, ySize) : null;
 
         OreView oreView = oreViewFor(tier, id, cx, cz, reachSnap, reachMask);
@@ -172,9 +187,10 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
         ChunkProcessor.Result res = processor.get().process(
                 buf, ySize, meta.minY(), tier, params, ores, oreView,
                 meta.ghostHigh(), meta.ghostLow(), seed, verticalCut, config.antiBaseFinder(),
-                caveReach, config.reachabilityCaves(), config.surfaceEntrances(), sealed);
+                caveReach, config.reachabilityCaves(), config.surfaceEntrances(), sealed,
+                config.fogOfWar(), fogMask);
 
-        if (caves || config.hideSealedCaves()) {
+        if (caves || config.hideSealedCaves() || config.fogOfWar()) {
             storeFaces(worldId, cx, cz, ySize, buf);
         }
 
@@ -197,6 +213,15 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
         // chunk re-sends as REAL on approach). REAL keeps all — caves are real.
         if (caves && tier != Tier.REAL && config.hideBlockEntities()
                 && stripHiddenTileEntities(column, res.heightMap, meta.minY())) {
+            reEncode = true;
+        }
+
+        // Fog of war (REAL tier): the block array hides unexplored caves as rock, but
+        // the chunk's block-entity list would still leak chest/spawner positions in
+        // those fogged pockets. Strip below-surface block entities that the player
+        // hasn't explored; chests in your own (explored) base stay.
+        if (tier == Tier.REAL && config.fogOfWar() && config.hideBlockEntities() && fogMask != null
+                && stripFoggedTileEntities(column, res.heightMap, meta.minY(), fogMask, ySize)) {
             reEncode = true;
         }
 
@@ -304,6 +329,65 @@ public final class ChunkPacketInterceptor extends SimplePacketListenerAbstract {
             if (surface < 0 || localY >= surface) kept[n++] = te;
         }
         if (n == tes.length) return false;   // nothing was below the surface
+
+        try {
+            COLUMN_TILE_ENTITIES.set(column, Arrays.copyOf(kept, n));
+            return true;
+        } catch (IllegalAccessException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Inflate the explored-set's compact per-chunk bitset into a reused thread-local
+     * {@code boolean[]} the engine consumes (idx = (y&lt;&lt;8)|(z&lt;&lt;4)|x). No
+     * allocation in steady state — the buffer grows once to the tallest world seen.
+     */
+    private boolean[] inflate(long[] bits, int ySize) {
+        int total = ySize << 8;
+        boolean[] buf = exploredBuf.get();
+        if (buf.length < total) {
+            buf = new boolean[total];
+            exploredBuf.set(buf);
+        }
+        if (bits == null) {
+            java.util.Arrays.fill(buf, 0, total, false);   // never-explored chunk -> fully fogged
+        } else {
+            for (int i = 0; i < total; i++) {
+                buf[i] = (bits[i >> 6] & (1L << (i & 63))) != 0;
+            }
+        }
+        return buf;
+    }
+
+    /**
+     * Fog-aware block-entity strip (REAL tier): keep a block entity only if it sits
+     * at/above the surface (surface structures) or in a cell the player has explored
+     * (the fog mask). Everything buried-and-unexplored is dropped so it can't be
+     * packet-xrayed; it returns the moment the player explores it (a re-send fires
+     * when the explored set changes). Returns true if any were removed.
+     */
+    private boolean stripFoggedTileEntities(Column column, int[] heightMap, int minY,
+                                            boolean[] fogMask, int ySize) {
+        if (COLUMN_TILE_ENTITIES == null || heightMap == null) return false;
+        TileEntity[] tes = column.getTileEntities();
+        if (tes == null || tes.length == 0) return false;
+
+        TileEntity[] kept = new TileEntity[tes.length];
+        int n = 0;
+        for (TileEntity te : tes) {
+            if (te == null) continue;
+            int lx = te.getX() & 15, lz = te.getZ() & 15;
+            int surface = heightMap[(lz << 4) | lx];
+            int localY = te.getY() - minY;
+            boolean keep = surface < 0 || localY >= surface;
+            if (!keep && localY >= 0 && localY < ySize) {
+                int idx = (localY << 8) | (lz << 4) | lx;
+                keep = fogMask[idx];                 // explored -> your own base, keep it
+            }
+            if (keep) kept[n++] = te;
+        }
+        if (n == tes.length) return false;
 
         try {
             COLUMN_TILE_ENTITIES.set(column, Arrays.copyOf(kept, n));

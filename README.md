@@ -133,6 +133,39 @@ least as deep as the ravines you want to see into. `0` = unlimited (original
 behavior). Only active while a reachability feature is on (it shapes that
 scanner). This is the zero-state, no-pop-in alternative to fog-of-war.
 
+### Fog of war (strongest anti-freecam)
+
+`reachability-caves` hides what you *can't reach*; **fog of war** (`fog-of-war`,
+GUI toggle, `/cadistchunk fog`) hides what you *haven't seen*. In the REAL bubble
+it keeps a cave-air cell real only if you have actually **looked at it** (eye
+raycasts) or been within ~8 blocks of it (the body bubble) — everything else
+below the surface reads as solid rock, **including open caves you could walk into
+but never entered**. This is the strongest predicate a server-side packet filter
+can give: a freecam/x-ray client learns *nothing you haven't already legitimately
+seen*. You cannot hide more than that without corrupting normal play (caves you're
+looking at would turn to stone), so it is the aggressive endpoint of the curve.
+
+It stays precise for the honest player: visible cave mouths in your bubble still
+read as mouths (an entrance shell, seam-continuous across chunks), the bubble
+around you is always real, looking at something reveals it *before* you reach it,
+and reveals are monotone within a session (no flicker). Mining into a fogged
+pocket reveals it within a moment (re-scan + re-send — never void). It **subsumes
+`reachability-caves`** when both are on (fog is the stricter keep), and vertical
+culling keeps everything you've explored open to its floor.
+
+A bounded, throttled main-thread eye-raycast scan runs per moving/looking player
+(a global per-tick ray governor caps the total) — watch `/tps` on a very large
+server. `fog-ray-distance` (GUI slider) sets how far sight reveals.
+
+Exploration **persists to disk** per player per world
+(`plugins/CadistChunkProcessing-Pro/explored/<world>/<player>.ccpf`,
+Deflate-compressed) so it survives restarts; those files are safe to delete at any
+time (players just re-explore — hiding only ever increases). `fog-persist: false`
+keeps it in-memory; `fog-expire-days` forgets stale exploration. A live settings
+change resets the in-memory set, which rebuilds within a second of moving/looking.
+
+Off by default.
+
 ### Surface-entrance camouflage
 
 A buried base is hidden, but its **door at the surface** — a trapdoor, ladder
@@ -166,6 +199,12 @@ a profile by what you want:
   can't see a base you haven't walked into. Optionally add `anti-base-finder` (scrubs
   man-made blocks) and `surface-entrances` (caps ladder/water-lift shafts). This runs
   the bounded main-thread reachability scan — watch `/tps` on a very large server.
+- **Maximum anti-freecam — fog of war.** Turn on `fog-of-war` and `vertical-margin: 8`.
+  Now *only what you've actually seen or been near* is ever real; everything else —
+  even open caves you could walk into — reads as solid rock, so freecam learns nothing
+  you haven't legitimately seen. This is strictly more aggressive than the package
+  above (it subsumes `reachability-caves`). Optionally add `anti-base-finder`. Runs the
+  bounded eye-raycast scan — watch `/tps` on a very large server.
 
 All of it is live-toggleable in `/cadistchunk gui`.
 
@@ -188,6 +227,7 @@ All of it is live-toggleable in `/cadistchunk gui`.
 - `/cadistchunk reach` — toggle reachability ore reveal (see below)
 - `/cadistchunk reachcaves` — toggle reachability cave/base hiding (see below)
 - `/cadistchunk sealedcaves` — toggle sealed-cave hiding (entrance-less caves; see below)
+- `/cadistchunk fog` — toggle fog of war (hide everything you haven't seen; see below)
 - `/cadistchunk entrances` — toggle surface-entrance camouflage (see below)
 - `/cadistchunk reload`
 
@@ -199,7 +239,7 @@ Requires JDK 21. PacketEvents must be installed on the target server.
 
 ```bash
 mvn clean package
-# -> target/CadistChunkProcessing-Pro-9.3.0.jar
+# -> target/CadistChunkProcessing-Pro-9.4.0.jar
 ```
 
 `paper-api 1.21.11` and `packetevents-spigot 2.12.1` are `provided` (not shaded).

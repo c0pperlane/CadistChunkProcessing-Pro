@@ -802,4 +802,124 @@ class ChunkProcessorTest {
                 STONE, DEEPSLATE, null, -1, false);
         assertArrayEquals(a, b, "the legacy overload must behave exactly like anti-base=false");
     }
+
+    // ---- fog of war (REAL tier) ----
+
+    @Test
+    void fog_keepsExplored_solidifiesUnexploredEvenSurfaceConnected_noVoid() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        // An OPEN cave connected to the sky — reachability/sealed would keep all of it.
+        for (int x = 2; x <= 10; x++) out[idx(x, 30, 8)] = AIR;
+        for (int y = 30; y < ySize; y++) out[idx(2, y, 8)] = AIR;   // shaft to the sky
+        // The player has explored only the near part (x=3..5).
+        boolean[] expl = new boolean[ySize << 8];
+        for (int x = 3; x <= 5; x++) expl[idx(x, 30, 8)] = true;
+        int[] in = out.clone();
+
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, false, false, true, expl);
+
+        assertEquals(AIR, out[idx(5, 30, 8)], "explored cave air stays real");
+        assertEquals(STONE, out[idx(9, 30, 8)], "unexplored part of an OPEN cave is fogged (fog > reachability)");
+        assertEquals(AIR, out[idx(2, 45, 8)], "open shaft above the surface stays air");
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(out[i])) assertTrue(CLF.isTransparent(in[i]), "fog created void at idx " + i);
+    }
+
+    @Test
+    void fog_bodyBubbleKeptViaExploredMask() {
+        // The service folds the player's body bubble INTO the explored mask, so a
+        // sealed cell the player stands in is kept as "explored".
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        out[idx(8, 30, 8)] = AIR;                    // a sealed cell the player stands in
+        boolean[] expl = new boolean[ySize << 8];
+        expl[idx(8, 30, 8)] = true;                  // body bubble == explored
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, false, false, true, expl);
+        assertEquals(AIR, out[idx(8, 30, 8)], "the body bubble (delivered as explored) stays real");
+    }
+
+    @Test
+    void fog_entranceShellKeepsVisibleMouth_solidifiesDeepUnexplored() {
+        int ySize = 64;
+        int[] out = tunnelFixture(ySize);            // tunnel x=2..13 @y20, shaft up at x=2
+        boolean[] expl = new boolean[ySize << 8];    // explored nothing
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, false, false, true, expl);
+        assertEquals(AIR, out[idx(3, 20, 8)], "cave mouth within the entrance shell stays real");
+        assertEquals(AIR, out[idx(6, 20, 8)], "shell-depth edge stays real");
+        assertEquals(STONE, out[idx(12, 20, 8)], "deep unexplored cave is fogged to rock");
+    }
+
+    @Test
+    void fog_verticalCullKeepsExploredRavineToFloor() {
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);            // intact roof
+        for (int y = 5; y <= 25; y++) out[idx(5, y, 5)] = AIR;   // ravine under the roof
+        boolean[] expl = new boolean[ySize << 8];
+        for (int y = 5; y <= 25; y++) expl[idx(5, y, 5)] = true; // explored the whole ravine
+        int[] in = out.clone();
+        // Flat cut at local y=16 — without the explored keep, the ravine below 16 would solidify.
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, 16, false, null, false, false, false, true, expl);
+        for (int y = 5; y < 16; y++)
+            assertEquals(AIR, out[idx(5, y, 5)], "explored ravine air below the cut stays open at y=" + y);
+        for (int i = 0; i < in.length; i++)
+            if (CLF.isTransparent(out[i])) assertTrue(CLF.isTransparent(in[i]), "fog vcull created void at idx " + i);
+    }
+
+    @Test
+    void fog_disabledOrNullMaskLeavesRealIntact() {
+        int ySize = 64;
+        int[] off = flatWorld(ySize, 40);
+        off[idx(1, 10, 1)] = AIR;
+        proc().process(off, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, false, false, false, null);
+        assertEquals(AIR, off[idx(1, 10, 1)], "fog off: REAL leaves caves intact");
+
+        int[] warming = flatWorld(ySize, 40);
+        warming[idx(1, 10, 1)] = AIR;
+        proc().process(warming, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, null, false, false, false, true, null);
+        assertEquals(AIR, warming[idx(1, 10, 1)], "fog on but null mask (warming up): no hiding yet");
+    }
+
+    @Test
+    void fog_overloadEquivalence_falseEqualsLegacy() {
+        // The 16-arg overload must equal the 18-arg one with fogOfWar=false, explored=null,
+        // across a combined reachability+sealed+vertical-cull+anti-base config.
+        int ySize = 64;
+        boolean[] reach = new boolean[ySize << 8];
+        reach[idx(5, 20, 8)] = true;
+        int[] a = tunnelFixture(ySize);
+        int[] b = tunnelFixture(ySize);
+        a[idx(1, 10, 1)] = AIR;
+        b[idx(1, 10, 1)] = AIR;
+        proc().process(a, ySize, 0, Tier.REAL, P, true, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, 24, true, reach, true, false, true);
+        proc().process(b, ySize, 0, Tier.REAL, P, true, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, 24, true, reach, true, false, true, false, null);
+        assertArrayEquals(a, b, "fog=false/explored=null must equal the legacy 16-arg overload");
+    }
+
+    @Test
+    void fog_subsumesReachability_whenBothOn() {
+        // With both fog and reachability-caves on, fog (the stricter keep) decides:
+        // an unexplored-but-reachable-elsewhere open cave is hidden unless explored.
+        int ySize = 64;
+        int[] out = flatWorld(ySize, 40);
+        for (int x = 2; x <= 8; x++) out[idx(x, 30, 8)] = AIR;       // open cave
+        for (int y = 30; y < ySize; y++) out[idx(2, y, 8)] = AIR;    // shaft
+        boolean[] reach = new boolean[ySize << 8];
+        for (int x = 2; x <= 8; x++) reach[idx(x, 30, 8)] = true;    // reachability would keep all
+        boolean[] expl = new boolean[ySize << 8];
+        expl[idx(7, 30, 8)] = true;                                  // but you only saw x=7
+        proc().process(out, ySize, 0, Tier.REAL, P, false, OreView.keepExposed(),
+                STONE, DEEPSLATE, null, -1, false, reach, true, false, false, true, expl);
+        // reachable AND explored (or shell) -> kept; reachable but unexplored & beyond shell -> hidden.
+        assertEquals(AIR, out[idx(7, 30, 8)], "explored+reachable cell stays real");
+        assertEquals(STONE, out[idx(8, 30, 8)], "reachable-but-unexplored cell is fogged (fog subsumes reachability)");
+    }
 }
