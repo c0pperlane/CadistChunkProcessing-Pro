@@ -282,3 +282,7 @@ modes:
 
 # Verbose logging + per-chunk diagnostics. Leave off in production.
 debug: false
+
+# Send anonymous usage metrics via bStats (server count, MC/Java version, and
+# which features are enabled). No player data, no chunk data. Set false to opt out.
+metrics: true

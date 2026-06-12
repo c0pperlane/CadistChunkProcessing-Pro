@@ -242,7 +242,7 @@ Requires JDK 21. PacketEvents must be installed on the target server.
 
 ```bash
 mvn clean package
-# -> target/CadistChunkProcessing-Pro-10.1.0-beta.jar
+# -> target/CadistChunkProcessing-Pro-10.2.0-beta.jar
 ```
 
 `paper-api 1.21.11` and `packetevents-spigot 2.12.1` are `provided` (not shaded).
@@ -273,3 +273,36 @@ chunk-border hack (no void to hide), the mining/cave reveal listeners (the real
 bubble subsumes them), per-player reprocessing, and the block-count "savings"
 metric (now measured wire bytes). The PacketEvents lifecycle is no longer
 double-owned — Pro uses the installed plugin's shared API.
+
+## What's new in v10 (the fog-of-war remaster)
+
+- **Fog of war** — the strongest correct anti-freecam cull: only what you've
+  actually *seen* (eye raycasts) or been near (the configurable *live radius*) is
+  ever sent real. Persists to disk, subsumes the old reachability hiders.
+- **Deploy-easy defaults** — fog of war + anti-base + ore anti-xray + the
+  bandwidth tiers are **on out of the box**; drop the jar in and it delivers the
+  promise with no tuning (`fog-of-war: false` for the lighter, no-scan profile).
+- **GUI split** — the main panel is the modern kit; the superseded reachability /
+  sealed-cave / reveal-distance hiders moved to an **Outdated** sub-page
+  (bottom-right).
+- **Configurable live radius** (`fog-body-radius`, GUI slider) — the always-real
+  bubble you've wanted, 2–64 blocks.
+
+See the per-feature sections above for details.
+
+## Metrics (bStats)
+
+Pro reports **anonymous** usage stats via [bStats](https://bstats.org): server
+count, MC/Java version, and which features are enabled — **no player data, no
+chunk data, nothing identifying**. It helps gauge adoption and which features
+matter. Opt out any time with `metrics: false` in the config (or globally in
+`plugins/bStats/config.yml`). bStats is shaded in (relocated) so it never clashes
+with another plugin's copy.
+
+## License
+
+CadistChunkProcessing Pro is **proprietary** — see [`LICENSE`](LICENSE). In short:
+if you have a license you may **run it on your own server(s), including
+commercially, and modify it for your own use** — but you may **not** redistribute,
+resell, publish, or share it (modified or not). It is not open source. For
+redistribution or white-label terms, contact the author.

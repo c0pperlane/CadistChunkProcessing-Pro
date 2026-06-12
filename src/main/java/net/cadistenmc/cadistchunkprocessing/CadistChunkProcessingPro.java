@@ -71,9 +71,36 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
 
         registered = PacketEvents.getAPI().getEventManager().registerListener(interceptor);
 
+        initMetrics();
+
         getLogger().info("Enabled — mode=" + config.mode()
                 + " cave-hiding=" + config.caveHiding()
-                + " ore-hiding=" + config.oreHiding());
+                + " ore-hiding=" + config.oreHiding()
+                + " fog-of-war=" + config.fogOfWar());
+    }
+
+    /**
+     * bStats plugin id. Register the plugin at https://bstats.org/getting-started
+     * and replace this with the id it gives you; metrics stay dormant until then.
+     */
+    private static final int BSTATS_PLUGIN_ID = 0;
+
+    /** Anonymous usage metrics via bStats (shaded + relocated). Opt-out via {@code metrics: false}. */
+    private void initMetrics() {
+        if (!config.metrics() || BSTATS_PLUGIN_ID <= 0) return;
+        try {
+            org.bstats.bukkit.Metrics m = new org.bstats.bukkit.Metrics(this, BSTATS_PLUGIN_ID);
+            m.addCustomChart(new org.bstats.charts.SimplePie("mode", () -> config.mode().name()));
+            m.addCustomChart(new org.bstats.charts.SimplePie("fog_of_war", () -> config.fogOfWar() ? "on" : "off"));
+            m.addCustomChart(new org.bstats.charts.SimplePie("anti_base_finder", () -> config.antiBaseFinder() ? "on" : "off"));
+            m.addCustomChart(new org.bstats.charts.SimplePie("ore_hiding", () -> config.oreHiding() ? "on" : "off"));
+            m.addCustomChart(new org.bstats.charts.SimplePie("hide_all_ores", () -> config.hideAllOres() ? "on" : "off"));
+            m.addCustomChart(new org.bstats.charts.SimplePie("reachability_caves", () -> config.reachabilityCaves() ? "on" : "off"));
+            m.addCustomChart(new org.bstats.charts.SimplePie("vertical_culling", () -> config.verticalCulling() ? "on" : "off"));
+            m.addCustomChart(new org.bstats.charts.SingleLineChart("players", () -> getServer().getOnlinePlayers().size()));
+        } catch (Throwable t) {
+            getLogger().warning("[CCP] bStats metrics could not start: " + t);
+        }
     }
 
     @Override

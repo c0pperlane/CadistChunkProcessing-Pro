@@ -1,0 +1,126 @@
+CadistChunkProcessing Pro — Proprietary Software License (EULA)
+
+Copyright © 2026 c0pperlane ("the Author"). All rights reserved.
+
+NOTE: This document is a plain-language license template provided for
+convenience. It is not legal advice. Before selling or distributing this
+software you should have it reviewed by a qualified lawyer in your
+jurisdiction and insert your full legal name/entity where indicated.
+
+------------------------------------------------------------------------
+1. DEFINITIONS
+------------------------------------------------------------------------
+"Software" means the CadistChunkProcessing Pro plugin, in compiled (.jar)
+or source form, including any updates, modifications, and accompanying
+files provided by the Author.
+
+"Licensee" / "You" means the individual or legal entity that has lawfully
+obtained a license to the Software (for example, by purchasing it from an
+authorized listing operated by or for the Author, such as Polymart,
+voxel.shop, or directly from the Author).
+
+"Server" means a Minecraft server instance, or a network of such instances
+operated by the same Licensee under common ownership and control.
+
+------------------------------------------------------------------------
+2. GRANT OF LICENSE
+------------------------------------------------------------------------
+Subject to Your continuous compliance with this License, the Author grants
+You a non-exclusive, non-transferable, non-sublicensable, revocable license
+to:
+
+  (a) install and run the Software on Server(s) that You own or operate,
+      including for commercial purposes (e.g. a paying or monetized
+      community server); and
+
+  (b) modify, adapt, and create derivative works of the Software solely
+      for Your own use on Your own Server(s) under (a).
+
+The scope of the grant (e.g. number of Servers, networks, or seats) is
+that stated on the listing or invoice through which You obtained the
+Software. If nothing is stated, the grant covers Server(s) operated by a
+single Licensee.
+
+------------------------------------------------------------------------
+3. RESTRICTIONS
+------------------------------------------------------------------------
+Except as expressly permitted in Section 2, You may NOT:
+
+  (a) redistribute, publish, share, resell, rent, lease, lend, sublicense,
+      or otherwise make the Software (original OR modified, in source OR
+      compiled form, in whole OR in part) available to any third party;
+
+  (b) upload the Software to any public or private repository, marketplace,
+      file host, forum, or chat from which others could obtain it;
+
+  (c) distribute a derivative work, fork, or any product that incorporates
+      a substantial portion of the Software's source code;
+
+  (d) remove, obscure, or alter any copyright, license, or attribution
+      notice in the Software;
+
+  (e) use the Software to provide a paid "configuration", "setup", or
+      hosting service that effectively transfers a copy of the Software to
+      a third party; or
+
+  (f) sell or transfer Your license to another party without the Author's
+      prior written consent.
+
+Modifications made under Section 2(b) are for Your internal use only and
+remain subject to all restrictions in this Section 3.
+
+------------------------------------------------------------------------
+4. OWNERSHIP
+------------------------------------------------------------------------
+The Software is licensed, not sold. The Author retains all right, title,
+and interest in and to the Software, including all intellectual property
+rights. This License does not grant You any rights to the Author's
+trademarks or branding.
+
+------------------------------------------------------------------------
+5. THIRD-PARTY COMPONENTS
+------------------------------------------------------------------------
+The Software may bundle or depend on third-party components under their
+own licenses (for example, bStats, used for anonymous usage metrics).
+Those components remain governed by their respective licenses; nothing in
+this License limits Your rights or obligations under them. PacketEvents
+and the Paper API are required at runtime but are NOT distributed with the
+Software.
+
+------------------------------------------------------------------------
+6. TERMINATION
+------------------------------------------------------------------------
+This License terminates automatically and immediately if You breach any of
+its terms. Upon termination You must cease all use of the Software and
+destroy all copies in Your possession or control. Sections 3, 4, 7, and 8
+survive termination.
+
+------------------------------------------------------------------------
+7. DISCLAIMER OF WARRANTY
+------------------------------------------------------------------------
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. THE AUTHOR DOES NOT
+WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE OR OPERATE WITHOUT
+INTERRUPTION.
+
+------------------------------------------------------------------------
+8. LIMITATION OF LIABILITY
+------------------------------------------------------------------------
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL THE AUTHOR BE
+LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE
+DAMAGES, OR ANY LOSS OF DATA, PROFITS, OR REVENUE, ARISING OUT OF OR
+RELATED TO Your USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF ADVISED OF
+THE POSSIBILITY OF SUCH DAMAGES. THE AUTHOR'S TOTAL LIABILITY SHALL NOT
+EXCEED THE AMOUNT YOU PAID FOR THE LICENSE.
+
+------------------------------------------------------------------------
+9. RESERVATION
+------------------------------------------------------------------------
+All rights not expressly granted in this License are reserved by the
+Author. The Author may offer the Software under different terms (for
+example, a separate redistribution or white-label agreement) by separate
+written agreement.
+
+By installing or using the Software, You acknowledge that You have read and
+agree to be bound by this License.
