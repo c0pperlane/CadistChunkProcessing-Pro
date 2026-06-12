@@ -1,5 +1,6 @@
 package net.cadistenmc.cadistchunkprocessing;
 
+import net.cadistenmc.cadistchunkprocessing.engine.ExploredCodec;
 import net.cadistenmc.cadistchunkprocessing.engine.SightMarch;
 import org.bukkit.Bukkit;
 import org.bukkit.ChunkSnapshot;
@@ -7,6 +8,11 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
@@ -41,7 +47,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *       before a ray reaches the new space.</li>
  * </ol>
  */
-public final class ExploredSetService {
+public final class ExploredSetService implements Listener {
 
     /** Body-bubble leash (blocks) around the player, always marked explored. */
     private static final int BODY_LEASH = 8;
@@ -57,10 +63,14 @@ public final class ExploredSetService {
     private static final double FRUSTUM_HALF_ANGLE = 55.0;
     /** Abort the body flood after this many visits (then just rely on sight). */
     private static final int BODY_MAX_VISITS = 20_000;
+    /** Flush all players' sets to disk at least this often (ms). */
+    private static final long FLUSH_INTERVAL_MS = 60_000L;
 
     private final JavaPlugin plugin;
     private final Config config;
     private final RefreshScheduler scheduler;
+    private final ExploredStore store;
+    private long lastFlush = System.currentTimeMillis();
 
     /** Cumulative explored bitsets for one player in one world. */
     private static final class Fog {
@@ -80,10 +90,11 @@ public final class ExploredSetService {
     private BukkitTask task;
     private final Random rng = new Random();
 
-    public ExploredSetService(JavaPlugin plugin, Config config, RefreshScheduler scheduler) {
+    public ExploredSetService(JavaPlugin plugin, Config config, RefreshScheduler scheduler, ExploredStore store) {
         this.plugin = plugin;
         this.config = config;
         this.scheduler = scheduler;
+        this.store = store;
     }
 
     public void start() {
@@ -141,6 +152,117 @@ public final class ExploredSetService {
         }
         byPlayer.keySet().removeIf(id -> Bukkit.getPlayer(id) == null);
         lastScan.keySet().removeIf(id -> Bukkit.getPlayer(id) == null);
+
+        // Periodic flush so a crash loses at most ~one interval of exploration.
+        if (persistOn() && System.currentTimeMillis() - lastFlush >= FLUSH_INTERVAL_MS) {
+            lastFlush = System.currentTimeMillis();
+            for (Player p : plugin.getServer().getOnlinePlayers()) saveAsync(p.getUniqueId());
+        }
+    }
+
+    // ---- persistence ----
+
+    private boolean persistOn() {
+        return store != null && config.fogPersist() && config.fogOfWar();
+    }
+
+    /** Load this player's saved set for their current world (async read + decode, main-thread merge). */
+    @EventHandler
+    public void onJoin(PlayerJoinEvent e) {
+        loadAsync(e.getPlayer().getUniqueId(), e.getPlayer().getWorld().getUID());
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent e) {
+        UUID id = e.getPlayer().getUniqueId();
+        saveAsync(id);
+        byPlayer.remove(id);
+        lastScan.remove(id);
+    }
+
+    @EventHandler
+    public void onWorldChange(PlayerChangedWorldEvent e) {
+        UUID id = e.getPlayer().getUniqueId();
+        saveAsync(id);                                  // save the world we just left (fog still holds it)
+        byPlayer.remove(id);                            // compute() would reset anyway; drop now so load can seed
+        lastScan.remove(id);
+        loadAsync(id, e.getPlayer().getWorld().getUID());
+    }
+
+    private void loadAsync(UUID id, UUID world) {
+        if (!persistOn()) return;
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                byte[] data = store.read(world, id);
+                if (data == null) return;
+                if (config.fogExpireDays() > 0) {
+                    long ageMs = System.currentTimeMillis() - store.lastModified(world, id);
+                    if (ageMs > config.fogExpireDays() * 86_400_000L) return;   // expired -> start empty
+                }
+                ExploredCodec.Decoded dec = ExploredCodec.decode(data);
+                Bukkit.getScheduler().runTask(plugin, () -> seedFog(id, world, dec));
+            } catch (Exception ignored) {
+                // Corrupt / unreadable -> discard and start empty (the safe direction).
+            }
+        });
+    }
+
+    /** Merge a loaded set into the player's live fog (main thread). */
+    private void seedFog(UUID id, UUID world, ExploredCodec.Decoded dec) {
+        Player p = Bukkit.getPlayer(id);
+        if (p == null || !p.getWorld().getUID().equals(world)) return;   // moved on while loading
+        World w = p.getWorld();
+        int ySize = w.getMaxHeight() - w.getMinHeight();
+        Fog fog = byPlayer.get(id);
+        if (fog == null || !fog.world.equals(world) || fog.ySize != ySize) {
+            fog = new Fog(world, ySize, w.getMinHeight());
+            byPlayer.put(id, fog);
+        }
+        if (dec.bitsLen != fog.bitsLen) return;         // world geometry changed -> can't reuse
+        boolean any = false;
+        for (Map.Entry<Long, long[]> e : dec.bits.entrySet()) {
+            long ck = e.getKey();
+            long[] add = e.getValue();
+            long[] old = fog.bits.get(ck);
+            if (old == null) {
+                fog.bits.put(ck, add);
+            } else {
+                long[] merged = old.clone();
+                for (int i = 0; i < fog.bitsLen; i++) merged[i] |= add[i];
+                fog.bits.put(ck, merged);
+            }
+            scheduler.enqueue(id, (int) (ck >> 32), (int) ck);
+            any = true;
+        }
+        if (any) lastScan.remove(id);                   // force a fresh scan so it re-sends/extends
+    }
+
+    private void saveAsync(UUID id) {
+        if (!persistOn()) return;
+        Fog fog = byPlayer.get(id);
+        if (fog == null || fog.bits.isEmpty()) return;
+        UUID world = fog.world;
+        int bitsLen = fog.bitsLen;
+        Map<Long, long[]> snapshot = new HashMap<>(fog.bits);   // immutable arrays -> safe off-thread
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                store.write(world, id, ExploredCodec.encode(snapshot, bitsLen));
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** Synchronous save of every online player's set — for plugin shutdown, when async tasks won't run. */
+    public void saveAllSync() {
+        if (!persistOn()) return;
+        for (Map.Entry<UUID, Fog> e : byPlayer.entrySet()) {
+            Fog fog = e.getValue();
+            if (fog.bits.isEmpty()) continue;
+            try {
+                store.write(fog.world, e.getKey(), ExploredCodec.encode(new HashMap<>(fog.bits), fog.bitsLen));
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /** Returns the number of sight rays cast for this player (0 if skipped). */

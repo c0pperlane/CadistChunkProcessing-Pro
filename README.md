@@ -157,9 +157,12 @@ A bounded, throttled main-thread eye-raycast scan runs per moving/looking player
 (a global per-tick ray governor caps the total) — watch `/tps` on a very large
 server. `fog-ray-distance` (GUI slider) sets how far sight reveals.
 
-> Exploration is **in-memory only** in this build — it resets on restart, world
-> change, or any settings change, and rebuilds within a second of moving/looking.
-> Persistent save/load is the next planned step (see `docs/REMASTER_PLAN.md`).
+Exploration **persists to disk** per player per world
+(`plugins/CadistChunkProcessing-Pro/explored/<world>/<player>.ccpf`,
+Deflate-compressed) so it survives restarts; those files are safe to delete at any
+time (players just re-explore — hiding only ever increases). `fog-persist: false`
+keeps it in-memory; `fog-expire-days` forgets stale exploration. A live settings
+change resets the in-memory set, which rebuilds within a second of moving/looking.
 
 Off by default.
 

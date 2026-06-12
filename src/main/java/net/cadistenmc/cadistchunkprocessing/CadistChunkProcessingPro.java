@@ -54,7 +54,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
         scheduler.start();
         reachability = new ReachabilityService(this, config, scheduler);
         reachability.start();
-        explored = new ExploredSetService(this, config, scheduler);
+        explored = new ExploredSetService(this, config, scheduler, new ExploredStore(this));
         explored.start();
         tracker = new PlayerTracker(config, worldMeta, scheduler);
         gui = new Gui(this);
@@ -66,6 +66,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
         var pm = getServer().getPluginManager();
         pm.registerEvents(tracker, this);
         pm.registerEvents(gui, this);
+        pm.registerEvents(explored, this);
         pm.registerEvents(new ChunkDirtyListener(borderCache, chunkCache, reachability, explored), this);
 
         registered = PacketEvents.getAPI().getEventManager().registerListener(interceptor);
@@ -81,7 +82,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
             PacketEvents.getAPI().getEventManager().unregisterListener(registered);
         }
         if (reachability != null) reachability.stop();
-        if (explored != null) explored.stop();
+        if (explored != null) { explored.saveAllSync(); explored.stop(); }
         if (scheduler != null) scheduler.stop();
         if (borderCache != null) borderCache.clear();
     }

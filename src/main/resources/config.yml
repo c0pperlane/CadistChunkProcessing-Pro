@@ -147,9 +147,9 @@ surface-entrances: false
 #   - Subsumes reachability-caves when both are on (fog is the stricter keep).
 #   - Runs a bounded, throttled main-thread eye-raycast scan per moving/looking
 #     player - watch /tps on a very large server. Off by default.
-# NOTE: exploration is in-memory only this build (no save/load yet); it resets on
-# restart, world change, or a settings change. It rebuilds within a second of
-# moving/looking.
+# Exploration persists to disk per player per world (see fog-persist) so it
+# survives restarts. A settings change still resets the live set; it rebuilds
+# within a second of moving/looking and reloads from disk on the next join.
 fog-of-war: false
 # How far (blocks) sight rays reveal. Higher sees/reveals farther at more cost.
 fog-ray-distance: 64
@@ -157,6 +157,12 @@ fog-ray-distance: 64
 fog-rays-per-scan: 96
 # Per-player cap on remembered explored chunks (farthest are evicted past this).
 fog-max-chunks: 50000
+# Save/load explored sets to plugins/<this>/explored/<world>/<player>.ccpf so
+# exploration survives restarts. Files are safe to delete at any time (players
+# re-explore; hiding only ever increases). true to persist, false for in-memory.
+fog-persist: true
+# Forget exploration older than this many days at load (0 = remember forever).
+fog-expire-days: 0
 
 # Extra blocks to treat as ore (anti-xray), matched by name substring against
 # the block id. Useful for modded/datapack ores. Examples below (commented):

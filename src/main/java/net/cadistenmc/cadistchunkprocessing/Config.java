@@ -30,6 +30,8 @@ public final class Config {
     private volatile int fogRayDistance = 64;
     private volatile int fogRaysPerScan = 96;
     private volatile int fogMaxChunks = 50000;
+    private volatile boolean fogPersist = true;
+    private volatile int fogExpireDays = 0;
     private volatile boolean chunkCache = true;
     private volatile boolean collapseBiomes = true;
     private volatile boolean verticalCulling = true;
@@ -67,6 +69,8 @@ public final class Config {
         this.fogRayDistance = Math.max(8, c.getInt("fog-ray-distance", 64));
         this.fogRaysPerScan = Math.max(8, c.getInt("fog-rays-per-scan", 96));
         this.fogMaxChunks = Math.max(256, c.getInt("fog-max-chunks", 50000));
+        this.fogPersist = c.getBoolean("fog-persist", true);
+        this.fogExpireDays = Math.max(0, c.getInt("fog-expire-days", 0));
         this.chunkCache = c.getBoolean("chunk-cache", true);
         this.collapseBiomes = c.getBoolean("collapse-biomes", true);
         this.verticalCulling = c.getBoolean("vertical-culling", true);
@@ -133,6 +137,8 @@ public final class Config {
     public int fogRayDistance() { return fogRayDistance; }
     public int fogRaysPerScan() { return fogRaysPerScan; }
     public int fogMaxChunks() { return fogMaxChunks; }
+    public boolean fogPersist() { return fogPersist; }
+    public int fogExpireDays() { return fogExpireDays; }
     /** Any reachability feature active -> the scanner needs to run. */
     public boolean reachabilityActive() { return reachabilityOres || reachabilityCaves || hideSealedCaves; }
     /** Fog of war active -> the explored-set scanner needs to run. */
