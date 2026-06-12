@@ -59,10 +59,10 @@ wall. **Anti-Base Finder** closes that gap. With it on, in the hidden tiers:
 
 It is strictly sub-surface and "solidify, never void" like the rest of the
 engine: surfaces stay vanilla and the **REAL bubble is untouched**, so *your*
-base re-appears in full as you walk up to it. It is aggressive by design — a
-natural cave that a base tunnels into will also be hidden while far away — so it
-is **off by default**; enable it in the GUI, with `/cadistchunk antibase`, or via
-`anti-base-finder: true` in the config.
+base re-appears in full as you walk up to it. **On by default** (v10): fog of war
+hides cave *air* you haven't seen, but a base's *solid* man-made blocks aren't cave
+air, so anti-base is what scrubs them — the two together fully hide a base. Toggle
+in the GUI, with `/cadistchunk antibase`, or `anti-base-finder` in the config.
 
 PacketEvents (installed as its own plugin) is used to intercept `CHUNK_DATA`.
 The engine never touches the Bukkit API on the packet thread (LeafMC / Moonrise
@@ -167,7 +167,9 @@ time (players just re-explore — hiding only ever increases). `fog-persist: fal
 keeps it in-memory; `fog-expire-days` forgets stale exploration. A live settings
 change resets the in-memory set, which rebuilds within a second of moving/looking.
 
-Off by default.
+**On by default** (v10) together with Anti-Base Finder and ore hiding — dropping the
+jar in gives aggressive anti-freecam + anti-xray out of the box. Set `fog-of-war:
+false` to fall back to the lighter distance-only hiding.
 
 ### Surface-entrance camouflage
 
@@ -188,26 +190,24 @@ the entrance. Off by default.
 
 ## Recommended setups
 
-Everything aggressive is **off by default** (safe, vanilla-looking, low cost). Pick
-a profile by what you want:
+**The default (v10) is the full package** — drop the jar in and you get aggressive
+anti-freecam + anti-xray with no tuning:
 
-- **Bandwidth only (default).** `cave-hiding` + `ore-hiding` on, `vertical-culling`
-  on. No reachability scan, no per-player cost. Good for any server.
-- **Anti-x-ray.** The above plus `hide-block-entities: true` (default) and, if you
-  want zero ore leakage, `hide-all-ores: true`.
-- **Hide bases from freecam (the full package).** Turn on `reachability-caves` +
-  `hide-sealed-caves`, set `reveal-distance: 32`, and `vertical-margin: 8`. Now only
-  the cave/room you're actually in (and ~32 blocks around you) is ever real; sealed
-  pockets, deep caves and anything past the leash read as solid rock, and freecam
-  can't see a base you haven't walked into. Optionally add `anti-base-finder` (scrubs
-  man-made blocks) and `surface-entrances` (caps ladder/water-lift shafts). This runs
-  the bounded main-thread reachability scan — watch `/tps` on a very large server.
-- **Maximum anti-freecam — fog of war.** Turn on `fog-of-war` and `vertical-margin: 8`.
-  Now *only what you've actually seen or been near* is ever real; everything else —
-  even open caves you could walk into — reads as solid rock, so freecam learns nothing
-  you haven't legitimately seen. This is strictly more aggressive than the package
-  above (it subsumes `reachability-caves`). Optionally add `anti-base-finder`. Runs the
-  bounded eye-raycast scan — watch `/tps` on a very large server.
+- **Default — everything the plugin promises, on.** `fog-of-war` + `anti-base-finder`
+  + `ore-hiding` + `hide-block-entities` + `cave-hiding` + `vertical-culling`
+  (`vertical-margin: 8`). Only what you've actually seen or been near is ever real;
+  unexplored caves *and* a base's solid man-made blocks read as rock; ores are
+  camouflaged. Runs the bounded eye-raycast scan — watch `/tps` on a very large
+  server. This is the headline setup; the GUI opens on exactly these.
+- **Lighter / no per-player scan.** Set `fog-of-war: false`. You keep the distance
+  bandwidth saving (`cave-hiding` + `vertical-culling`) and ore anti-xray with zero
+  per-player cost; nothing scans. Good for huge servers that can't spare the ticks.
+- **Paranoid ores.** Add `hide-all-ores: true` for zero ore leakage (nobody sees ore
+  until they mine it).
+
+The legacy hiders fog of war supersedes — `reachability-ores`/`-caves`,
+`hide-sealed-caves`, `reveal-distance` — live on the **Outdated** sub-page of the GUI
+(bottom-right) and are off by default; they're only useful with `fog-of-war: false`.
 
 All of it is live-toggleable in `/cadistchunk gui`.
 
@@ -242,7 +242,7 @@ Requires JDK 21. PacketEvents must be installed on the target server.
 
 ```bash
 mvn clean package
-# -> target/CadistChunkProcessing-Pro-10.0.1-beta.jar
+# -> target/CadistChunkProcessing-Pro-10.1.0-beta.jar
 ```
 
 `paper-api 1.21.11` and `packetevents-spigot 2.12.1` are `provided` (not shaded).

@@ -32,8 +32,10 @@ ore-hiding: true    # anti-xray: camouflage ores you cannot legitimately see
 # Strictly sub-surface and solidify-only (no void): surfaces stay vanilla and the
 # REAL bubble is untouched, so YOUR base re-appears in full as you walk up to it.
 # Aggressive by design — a connected natural cave that a base tunnels into will
-# also be hidden while far away. Off by default; opt in if you want it.
-anti-base-finder: false
+# also be hidden while far away. ON by default: fog of war hides unexplored cave
+# space, but a base's solid man-made BLOCKS (walls/floor) are not cave air, so
+# anti-base is what scrubs them to rock — the two together fully hide bases.
+anti-base-finder: true
 
 # Anti-xray ore visibility:
 #   false (default) = show only ores you could legitimately see — surface-exposed
@@ -146,11 +148,12 @@ surface-entrances: false
 #     a moment (re-scan + re-send - never void).
 #   - Subsumes reachability-caves when both are on (fog is the stricter keep).
 #   - Runs a bounded, throttled main-thread eye-raycast scan per moving/looking
-#     player - watch /tps on a very large server. Off by default.
-# Exploration persists to disk per player per world (see fog-persist) so it
-# survives restarts. A settings change still resets the live set; it rebuilds
-# within a second of moving/looking and reloads from disk on the next join.
-fog-of-war: false
+#     player - watch /tps on a very large server.
+# ON by default (the headline anti-freecam cull) - set false to fall back to the
+# lighter distance-only hiding. Exploration persists to disk per player per world
+# (see fog-persist) so it survives restarts. A settings change resets the live
+# set; it rebuilds within a second of moving/looking and reloads from disk on join.
+fog-of-war: true
 # How far (blocks) sight rays reveal. Higher sees/reveals farther at more cost.
 fog-ray-distance: 64
 # The "live radius": the bubble around you that is ALWAYS real, even cells you
@@ -214,8 +217,9 @@ collapse-biomes: true
 vertical-culling: true
 
 # Blocks kept real below your feet before vertical culling kicks in. Larger =
-# safer for fast descents, smaller = more savings. (min 8)
-vertical-margin: 48
+# safer for fast descents, smaller = more savings/aggression. (min 8) With fog of
+# war on, what you've explored stays open regardless, so 8 is the aggressive default.
+vertical-margin: 8
 
 # Re-send the bubble after this many blocks of vertical movement, so the cull
 # line follows you down/up. Smaller = more responsive (more re-sends). (min 4)
