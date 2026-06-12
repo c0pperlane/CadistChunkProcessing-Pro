@@ -32,6 +32,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
     private PlayerTracker tracker;
     private RefreshScheduler scheduler;
     private ReachabilityService reachability;
+    private ExploredSetService explored;
     private Gui gui;
     private PacketListenerCommon registered;
 
@@ -53,16 +54,19 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
         scheduler.start();
         reachability = new ReachabilityService(this, config, scheduler);
         reachability.start();
+        explored = new ExploredSetService(this, config, scheduler);
+        explored.start();
         tracker = new PlayerTracker(config, worldMeta, scheduler);
         gui = new Gui(this);
 
         ChunkPacketInterceptor interceptor = new ChunkPacketInterceptor(
-                this, config, worldMeta, tracker, borderCache, chunkCache, monitor, classifier, reachability);
+                this, config, worldMeta, tracker, borderCache, chunkCache, monitor, classifier,
+                reachability, explored);
 
         var pm = getServer().getPluginManager();
         pm.registerEvents(tracker, this);
         pm.registerEvents(gui, this);
-        pm.registerEvents(new ChunkDirtyListener(borderCache, chunkCache, reachability), this);
+        pm.registerEvents(new ChunkDirtyListener(borderCache, chunkCache, reachability, explored), this);
 
         registered = PacketEvents.getAPI().getEventManager().registerListener(interceptor);
 
@@ -77,6 +81,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
             PacketEvents.getAPI().getEventManager().unregisterListener(registered);
         }
         if (reachability != null) reachability.stop();
+        if (explored != null) explored.stop();
         if (scheduler != null) scheduler.stop();
         if (borderCache != null) borderCache.clear();
     }
@@ -91,6 +96,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
         borderCache.clear();
         chunkCache.clear();
         if (reachability != null) reachability.clear();
+        if (explored != null) explored.clear();
         if (classifier != null) classifier.setExtraOres(config.extraOres());
         int r = config.params().caveRenderDistance();
         for (Player p : getServer().getOnlinePlayers()) {
@@ -107,7 +113,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
-            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | antibase | reach | reachcaves | sealedcaves | entrances | reload", SUB);
+            send(sender, "/cadistchunk gui | stats | bar | mode <name> | cave | ore | antibase | reach | reachcaves | sealedcaves | entrances | fog | reload", SUB);
             return true;
         }
         switch (args[0].toLowerCase()) {
@@ -123,6 +129,7 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                         + "  reach-ores=" + config.reachabilityOres()
                         + "  reach-caves=" + config.reachabilityCaves()
                         + "  sealed-caves=" + config.hideSealedCaves()
+                        + "  fog=" + config.fogOfWar()
                         + "  entrances=" + config.surfaceEntrances()
                         + "  vertical-cull=" + config.verticalCulling(), SUB);
                 send(sender, String.format("  bandwidth saved: %.1f%%  (%s this session)",
@@ -190,6 +197,13 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                 config.setSurfaceEntrances(!config.surfaceEntrances());
                 applyChanges();
                 send(sender, "Surface-entrance camouflage " + (config.surfaceEntrances() ? "enabled." : "disabled."), GREEN);
+            }
+            case "fog" -> {
+                config.setFogOfWar(!config.fogOfWar());
+                applyChanges();
+                send(sender, "Fog of war " + (config.fogOfWar()
+                        ? "enabled — only what you've seen or been near is sent (subsumes reachability-caves)."
+                        : "disabled."), GREEN);
             }
             case "reload" -> {
                 config.reload();

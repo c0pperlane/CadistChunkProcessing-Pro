@@ -1,0 +1,364 @@
+package net.cadistenmc.cadistchunkprocessing;
+
+import net.cadistenmc.cadistchunkprocessing.engine.SightMarch;
+import org.bukkit.Bukkit;
+import org.bukkit.ChunkSnapshot;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Random;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Fog of war: maintains, per player, the set of cells they have actually
+ * <em>seen</em> (eye raycasts) or <em>been near</em> (an 8-block body bubble) —
+ * the strongest correct anti-freecam predicate. Mirrors
+ * {@link ReachabilityService}: a bounded, throttled main-thread scan that
+ * publishes immutable per-chunk bitsets the packet thread reads race-free.
+ *
+ * <p>Unlike reachability (which is recomputed fresh each scan), the explored set
+ * is <em>cumulative within a session</em> — never cleared as you move — so
+ * reveals are monotone (no flicker). Per-chunk bitsets are merged copy-on-write:
+ * a scan that adds cells to a chunk publishes a brand-new array, so a reader on
+ * the packet thread always sees a complete, never-mutated-in-place snapshot.
+ *
+ * <p>Two mark sources per scan:
+ * <ol>
+ *   <li><b>Sight</b> — N rays DDA-marched from the eye through server-truth
+ *       geometry (chunk snapshots), stopping at the first occluder, the distance
+ *       cap, or the edge of loaded chunks. ~75% jittered over the look frustum,
+ *       ~25% over the sphere (so the F5 back-camera never stares at solid fog).</li>
+ *   <li><b>Body</b> — a small air/fluid flood within an 8-block leash of the
+ *       player, so you are never buried in fog and digging stays correct even
+ *       before a ray reaches the new space.</li>
+ * </ol>
+ */
+public final class ExploredSetService {
+
+    /** Body-bubble leash (blocks) around the player, always marked explored. */
+    private static final int BODY_LEASH = 8;
+    /** Recompute only after the player moves at least this many blocks (or turns; see {@link #compute}). */
+    private static final int MOVE_THRESHOLD = 1;
+    /** Scan cadence in ticks. */
+    private static final long PERIOD = 4L;
+    /** Hard cap on total sight rays cast per tick across all players (the governor). */
+    private static final int MAX_RAYS_PER_TICK = 4096;
+    /** Fraction of rays aimed within the look frustum (the rest sample the sphere). */
+    private static final double FRUSTUM_FRACTION = 0.75;
+    /** Half-angle (degrees) of the look-frustum cone the frustum rays sample. */
+    private static final double FRUSTUM_HALF_ANGLE = 55.0;
+    /** Abort the body flood after this many visits (then just rely on sight). */
+    private static final int BODY_MAX_VISITS = 20_000;
+
+    private final JavaPlugin plugin;
+    private final Config config;
+    private final RefreshScheduler scheduler;
+
+    /** Cumulative explored bitsets for one player in one world. */
+    private static final class Fog {
+        final UUID world;
+        final int ySize;
+        final int minY;
+        final int bitsLen;                              // longs per chunk = ceil((ySize<<8)/64)
+        final ConcurrentHashMap<Long, long[]> bits = new ConcurrentHashMap<>();
+        Fog(UUID world, int ySize, int minY) {
+            this.world = world; this.ySize = ySize; this.minY = minY;
+            this.bitsLen = ((ySize << 8) + 63) >> 6;
+        }
+    }
+
+    private final ConcurrentHashMap<UUID, Fog> byPlayer = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, int[]> lastScan = new ConcurrentHashMap<>(); // {x,y,z,yawDeg,pitchDeg}
+    private BukkitTask task;
+    private final Random rng = new Random();
+
+    public ExploredSetService(JavaPlugin plugin, Config config, RefreshScheduler scheduler) {
+        this.plugin = plugin;
+        this.config = config;
+        this.scheduler = scheduler;
+    }
+
+    public void start() {
+        task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, PERIOD, PERIOD);
+    }
+
+    public void stop() {
+        if (task != null) task.cancel();
+        byPlayer.clear();
+        lastScan.clear();
+    }
+
+    public void clear() {
+        byPlayer.clear();
+        lastScan.clear();
+    }
+
+    /** Force the next scan to run (e.g. the player mined into new space). */
+    public void invalidate(UUID id) {
+        lastScan.remove(id);
+    }
+
+    // ---- packet-thread accessors (race-free: a published long[] is never mutated in place) ----
+
+    public boolean hasSnapshot(UUID id, UUID world, int ySize) {
+        Fog f = byPlayer.get(id);
+        return f != null && f.world.equals(world) && f.ySize == ySize;
+    }
+
+    /** Cumulative explored bitset for one chunk (idx = (y&lt;&lt;8)|(z&lt;&lt;4)|x), or null. */
+    public long[] bitsFor(UUID id, int cx, int cz) {
+        Fog f = byPlayer.get(id);
+        return f == null ? null : f.bits.get(key(cx, cz));
+    }
+
+    static long key(int x, int z) {
+        return ((long) x << 32) | (z & 0xFFFFFFFFL);
+    }
+
+    // ---- main-thread scan ----
+
+    private void tick() {
+        if (!config.fogActive()) {
+            if (!byPlayer.isEmpty()) { byPlayer.clear(); lastScan.clear(); }
+            return;
+        }
+        int rayBudget = MAX_RAYS_PER_TICK;
+        for (Player p : plugin.getServer().getOnlinePlayers()) {
+            try {
+                rayBudget -= compute(p, rayBudget);
+            } catch (Exception ignored) {
+                byPlayer.remove(p.getUniqueId());
+            }
+            if (rayBudget <= 0) break;
+        }
+        byPlayer.keySet().removeIf(id -> Bukkit.getPlayer(id) == null);
+        lastScan.keySet().removeIf(id -> Bukkit.getPlayer(id) == null);
+    }
+
+    /** Returns the number of sight rays cast for this player (0 if skipped). */
+    private int compute(Player p, int rayBudget) {
+        UUID id = p.getUniqueId();
+        if (p.hasPermission("cadistchunkprocessing.bypass")) { byPlayer.remove(id); return 0; }
+        World w = p.getWorld();
+        if (!config.worldEnabled(w.getName())) { byPlayer.remove(id); return 0; }
+
+        Location eye = p.getEyeLocation();
+        int px = eye.getBlockX(), py = eye.getBlockY(), pz = eye.getBlockZ();
+        int yawDeg = ((int) eye.getYaw()) % 360;
+        int pitchDeg = (int) eye.getPitch();
+
+        int[] prev = lastScan.get(id);
+        if (prev != null && byPlayer.containsKey(id)
+                && Math.abs(prev[0] - px) < MOVE_THRESHOLD
+                && Math.abs(prev[1] - py) < MOVE_THRESHOLD
+                && Math.abs(prev[2] - pz) < MOVE_THRESHOLD
+                && prev[3] == yawDeg && prev[4] == pitchDeg) {
+            return 0;   // hasn't moved or turned — the cumulative set is unchanged
+        }
+
+        int minY = w.getMinHeight(), maxY = w.getMaxHeight();
+        int ySize = maxY - minY;
+
+        Fog fog = byPlayer.get(id);
+        if (fog == null || !fog.world.equals(w.getUID()) || fog.ySize != ySize) {
+            fog = new Fog(w.getUID(), ySize, minY);     // fresh world (or first scan) -> reset exploration
+            byPlayer.put(id, fog);
+        }
+
+        // Snapshot the loaded bubble around the player (main thread).
+        int r = config.params().realRadius();
+        int pcx = px >> 4, pcz = pz >> 4;
+        Map<Long, ChunkSnapshot> snaps = new HashMap<>();
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
+                int cx = pcx + dx, cz = pcz + dz;
+                if (w.isChunkLoaded(cx, cz)) {
+                    snaps.put(key(cx, cz), w.getChunkAt(cx, cz).getChunkSnapshot(false, false, false));
+                }
+            }
+        }
+
+        // Cells newly marked this scan, per chunk.
+        final int bitsLen = fog.bitsLen;
+        Map<Long, long[]> scan = new HashMap<>();
+        final int fMinY = minY, fMaxY = maxY, fYSize = ySize;
+        SightMarch.Visitor marker = (x, y, z) -> mark(scan, bitsLen, x, y, z, fMinY, fYSize);
+
+        // --- Body source: an 8-block air/fluid flood around the player (always explored). ---
+        bodyFlood(snaps, px, p.getLocation().getBlockY(), pz, minY, maxY, marker);
+
+        // --- Sight source: rays from the eye through server-truth geometry. ---
+        int rays = Math.min(config.fogRaysPerScan(), Math.max(0, rayBudget));
+        double dist = config.fogRayDistance();
+        SightMarch.BlockAccess access = (x, y, z) -> sightTransparent(snaps, x, y, z, fMinY, fMaxY);
+        castRays(access, marker, eye, rays, dist);
+
+        // --- Merge copy-on-write into the cumulative set; enqueue changed chunks. ---
+        for (Map.Entry<Long, long[]> e : scan.entrySet()) {
+            long ck = e.getKey();
+            long[] add = e.getValue();
+            long[] old = fog.bits.get(ck);
+            long[] merged;
+            if (old == null) {
+                merged = add;                            // fresh chunk: the scan array is already private
+            } else {
+                merged = old.clone();
+                boolean changed = false;
+                for (int i = 0; i < bitsLen; i++) {
+                    long m = merged[i] | add[i];
+                    if (m != merged[i]) { merged[i] = m; changed = true; }
+                }
+                if (!changed) continue;                  // nothing new in this chunk
+            }
+            fog.bits.put(ck, merged);
+            scheduler.enqueue(id, (int) (ck >> 32), (int) ck);
+        }
+
+        evictIfOverCap(fog, pcx, pcz);
+        lastScan.put(id, new int[]{px, py, pz, yawDeg, pitchDeg});
+        return rays;
+    }
+
+    /** Mark one absolute cell explored in the per-scan bitset. */
+    private static void mark(Map<Long, long[]> scan, int bitsLen, int wx, int wy, int wz, int minY, int ySize) {
+        int localY = wy - minY;
+        if (localY < 0 || localY >= ySize) return;
+        long ck = key(wx >> 4, wz >> 4);
+        long[] arr = scan.get(ck);
+        if (arr == null) { arr = new long[bitsLen]; scan.put(ck, arr); }
+        int idx = (localY << 8) | ((wz & 15) << 4) | (wx & 15);
+        arr[idx >> 6] |= 1L << (idx & 63);
+    }
+
+    /** Small bounded flood of the air/fluid the player's body occupies, leashed to {@link #BODY_LEASH}. */
+    private void bodyFlood(Map<Long, ChunkSnapshot> snaps, int px, int feetY, int pz,
+                           int minY, int maxY, SightMarch.Visitor marker) {
+        int lo = Math.max(minY, feetY - BODY_LEASH), hi = Math.min(maxY - 1, feetY + BODY_LEASH + 1);
+        int x0 = px - BODY_LEASH, z0 = pz - BODY_LEASH;
+        int span = BODY_LEASH * 2 + 1;
+        int h = hi - lo + 1;
+        if (h <= 0) return;
+        boolean[] seen = new boolean[span * span * h];
+        int[] queue = new int[seen.length];
+        int head = 0, tail = 0;
+        long leashSq = (long) BODY_LEASH * BODY_LEASH;
+        for (int yy = feetY; yy <= feetY + 1 && yy <= hi; yy++) {
+            int rel = rel(px - x0, yy - lo, pz - z0, span);
+            if (rel >= 0 && !seen[rel] && passable(snaps, px, yy, pz)) {
+                seen[rel] = true; queue[tail++] = rel;
+            }
+        }
+        int visits = 0;
+        while (head < tail) {
+            int rel = queue[head++];
+            if (++visits > BODY_MAX_VISITS) return;
+            int rx = rel % span, t = rel / span, rz = t % span, ry = t / span;
+            int wx = x0 + rx, wy = lo + ry, wz = z0 + rz;
+            marker.mark(wx, wy, wz);
+            if (rx > 0)        tail = relax(snaps, seen, queue, rel - 1, wx - 1, wy, wz, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
+            if (rx < span - 1) tail = relax(snaps, seen, queue, rel + 1, wx + 1, wy, wz, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
+            if (rz > 0)        tail = relax(snaps, seen, queue, rel - span, wx, wy, wz - 1, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
+            if (rz < span - 1) tail = relax(snaps, seen, queue, rel + span, wx, wy, wz + 1, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
+            if (ry > 0)        tail = relax(snaps, seen, queue, rel - span * span, wx, wy - 1, wz, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
+            if (ry < h - 1)    tail = relax(snaps, seen, queue, rel + span * span, wx, wy + 1, wz, px, feetY, pz, leashSq, x0, lo, z0, span, tail);
+        }
+    }
+
+    private int relax(Map<Long, ChunkSnapshot> snaps, boolean[] seen, int[] queue, int nRel,
+                      int wx, int wy, int wz, int px, int py, int pz, long leashSq,
+                      int x0, int lo, int z0, int span, int tail) {
+        if (seen[nRel]) return tail;
+        long dx = wx - px, dy = wy - py, dz = wz - pz;
+        if (dx * dx + dy * dy + dz * dz > leashSq) return tail;
+        if (passable(snaps, wx, wy, wz)) {
+            seen[nRel] = true;
+            queue[tail++] = nRel;
+        }
+        return tail;
+    }
+
+    private static int rel(int rx, int ry, int rz, int span) {
+        if (rx < 0 || rx >= span || rz < 0 || rz >= span || ry < 0) return -1;
+        return ry * (span * span) + rz * span + rx;
+    }
+
+    /** Cast the sight rays: most jittered over the look frustum, the rest over the sphere. */
+    private void castRays(SightMarch.BlockAccess access, SightMarch.Visitor marker,
+                          Location eye, int rays, double dist) {
+        if (rays <= 0) return;
+        double ox = eye.getX(), oy = eye.getY(), oz = eye.getZ();
+        Vector f = eye.getDirection();
+        if (f.lengthSquared() < 1e-9) f = new Vector(0, 0, 1);
+        f.normalize();
+        // Orthonormal basis around the look vector.
+        Vector up = Math.abs(f.getY()) > 0.99 ? new Vector(1, 0, 0) : new Vector(0, 1, 0);
+        Vector right = f.clone().crossProduct(up).normalize();
+        Vector u = right.clone().crossProduct(f).normalize();
+        double cosMax = Math.cos(Math.toRadians(FRUSTUM_HALF_ANGLE));
+        int frustum = (int) (rays * FRUSTUM_FRACTION);
+
+        for (int i = 0; i < rays; i++) {
+            double dx, dy, dz;
+            if (i < frustum) {
+                double c = cosMax + rng.nextDouble() * (1.0 - cosMax);   // cos of polar angle from look
+                double s = Math.sqrt(Math.max(0.0, 1.0 - c * c));
+                double phi = rng.nextDouble() * 2.0 * Math.PI;
+                double rc = s * Math.cos(phi), uc = s * Math.sin(phi);
+                dx = f.getX() * c + right.getX() * rc + u.getX() * uc;
+                dy = f.getY() * c + right.getY() * rc + u.getY() * uc;
+                dz = f.getZ() * c + right.getZ() * rc + u.getZ() * uc;
+            } else {
+                double c = rng.nextDouble() * 2.0 - 1.0;
+                double s = Math.sqrt(Math.max(0.0, 1.0 - c * c));
+                double phi = rng.nextDouble() * 2.0 * Math.PI;
+                dx = s * Math.cos(phi); dy = c; dz = s * Math.sin(phi);
+            }
+            SightMarch.cast(access, marker, ox, oy, oz, dx, dy, dz, dist, true);
+        }
+    }
+
+    /** Sight passes through this cell (air / fluid / glass / leaves / non-occluding); edge = opaque stop. */
+    private boolean sightTransparent(Map<Long, ChunkSnapshot> snaps, int wx, int wy, int wz, int minY, int maxY) {
+        if (wy < minY || wy >= maxY) return false;
+        ChunkSnapshot s = snaps.get(key(wx >> 4, wz >> 4));
+        if (s == null) return false;
+        Material m = s.getBlockType(wx & 15, wy, wz & 15);
+        return !m.isOccluding();
+    }
+
+    /** A cell the player's body can occupy: air or a fluid. Unloaded chunks read as solid. */
+    private boolean passable(Map<Long, ChunkSnapshot> snaps, int wx, int wy, int wz) {
+        ChunkSnapshot s = snaps.get(key(wx >> 4, wz >> 4));
+        if (s == null) return false;
+        Material m = s.getBlockType(wx & 15, wy, wz & 15);
+        if (m.isAir()) return true;
+        return m == Material.WATER || m == Material.LAVA || m == Material.BUBBLE_COLUMN;
+    }
+
+    /** Keep memory bounded: when over the per-player cap, drop the chunks farthest from the player. */
+    private void evictIfOverCap(Fog fog, int pcx, int pcz) {
+        int cap = config.fogMaxChunks();
+        int over = fog.bits.size() - cap;
+        if (over <= 0) return;
+        long farKey = 0;
+        // Cheap repeated-max eviction: remove the single farthest chunk per overflow.
+        for (int n = 0; n < over; n++) {
+            long worst = Long.MIN_VALUE;
+            boolean found = false;
+            for (Long k : fog.bits.keySet()) {
+                int cx = (int) (k >> 32), cz = (int) (long) k;
+                long d = (long) (cx - pcx) * (cx - pcx) + (long) (cz - pcz) * (cz - pcz);
+                if (d > worst) { worst = d; farKey = k; found = true; }
+            }
+            if (found) fog.bits.remove(farKey);
+        }
+    }
+}

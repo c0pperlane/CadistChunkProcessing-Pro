@@ -134,6 +134,30 @@ reveal-distance: 0
 #   terrain and can't be hidden this way - seal the entrance. Off by default.
 surface-entrances: false
 
+# Fog of war (REAL tier). The strongest anti-xray/anti-freecam policy: only the
+# cells you have actually SEEN (eye raycasts) or been near (an 8-block body
+# bubble) are ever sent real - everything else below the surface reads as solid
+# rock, even open caves you could walk into but never looked at. A freecam/x-ray
+# client therefore learns nothing you haven't already legitimately seen.
+#   - Visible cave mouths in your bubble still read as mouths (an entrance shell),
+#     and the bubble around you is always real, so nothing visible is false-culled.
+#   - Reveals are monotone within a session (no flicker); looking at something
+#     reveals it before you reach it; mining into a fogged pocket reveals it within
+#     a moment (re-scan + re-send - never void).
+#   - Subsumes reachability-caves when both are on (fog is the stricter keep).
+#   - Runs a bounded, throttled main-thread eye-raycast scan per moving/looking
+#     player - watch /tps on a very large server. Off by default.
+# NOTE: exploration is in-memory only this build (no save/load yet); it resets on
+# restart, world change, or a settings change. It rebuilds within a second of
+# moving/looking.
+fog-of-war: false
+# How far (blocks) sight rays reveal. Higher sees/reveals farther at more cost.
+fog-ray-distance: 64
+# Sight rays cast per player per scan (a global per-tick governor caps the total).
+fog-rays-per-scan: 96
+# Per-player cap on remembered explored chunks (farthest are evicted past this).
+fog-max-chunks: 50000
+
 # Extra blocks to treat as ore (anti-xray), matched by name substring against
 # the block id. Useful for modded/datapack ores. Examples below (commented):
 extra-ores: []

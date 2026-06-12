@@ -22,12 +22,14 @@ public final class ChunkDirtyListener implements Listener {
     private final BorderCache borderCache;
     private final ProcessedChunkCache chunkCache;
     private final ReachabilityService reachability;
+    private final ExploredSetService explored;
 
     public ChunkDirtyListener(BorderCache borderCache, ProcessedChunkCache chunkCache,
-                              ReachabilityService reachability) {
+                              ReachabilityService reachability, ExploredSetService explored) {
         this.borderCache = borderCache;
         this.chunkCache = chunkCache;
         this.reachability = reachability;
+        this.explored = explored;
     }
 
     private void dirty(World world, int cx, int cz) {
@@ -49,15 +51,17 @@ public final class ChunkDirtyListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent e) {
         dirty(e.getBlock());
-        // Mining can open a hidden (reachability-solidified) pocket; force the
-        // player's reachability to recompute so it reveals on the next scan.
+        // Mining can open a hidden pocket; force the player's reachability and fog
+        // scans to recompute so the new space reveals on the next scan.
         reachability.invalidate(e.getPlayer().getUniqueId());
+        explored.invalidate(e.getPlayer().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent e) {
         dirty(e.getBlock());
         reachability.invalidate(e.getPlayer().getUniqueId());
+        explored.invalidate(e.getPlayer().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
