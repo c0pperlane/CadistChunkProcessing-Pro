@@ -1,4 +1,4 @@
-# CadistChunkProcessing Pro (v9)
+# CadistChunkProcessing Pro (v10 — fog-of-war remaster)
 
 Server-side chunk processing for **Paper 1.21.11** that saves upload bandwidth
 **and** makes x-ray impossible — the successor to CadistChunkProcessing v8.
@@ -239,7 +239,7 @@ Requires JDK 21. PacketEvents must be installed on the target server.
 
 ```bash
 mvn clean package
-# -> target/CadistChunkProcessing-Pro-9.4.0.jar
+# -> target/CadistChunkProcessing-Pro-10.0.0-beta.jar
 ```
 
 `paper-api 1.21.11` and `packetevents-spigot 2.12.1` are `provided` (not shaded).
