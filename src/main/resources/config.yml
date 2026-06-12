@@ -153,6 +153,10 @@ surface-entrances: false
 fog-of-war: false
 # How far (blocks) sight rays reveal. Higher sees/reveals farther at more cost.
 fog-ray-distance: 64
+# The "live radius": the bubble around you that is ALWAYS real, even cells you
+# haven't actually looked at (digging safety + never being buried in fog). 2-64.
+# Bigger = more is always visible right around you, at more scan cost.
+fog-body-radius: 8
 # Sight rays cast per player per scan (a global per-tick governor caps the total).
 fog-rays-per-scan: 96
 # Per-player cap on remembered explored chunks (farthest are evicted past this).

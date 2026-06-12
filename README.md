@@ -155,7 +155,10 @@ culling keeps everything you've explored open to its floor.
 
 A bounded, throttled main-thread eye-raycast scan runs per moving/looking player
 (a global per-tick ray governor caps the total) — watch `/tps` on a very large
-server. `fog-ray-distance` (GUI slider) sets how far sight reveals.
+server. `fog-ray-distance` (GUI slider) sets how far sight reveals;
+**`fog-body-radius`** (GUI slider "Fog live radius", default 8, 2–64) sets the
+always-real bubble around you — the live radius that stays visible even where you
+haven't looked, for digging safety. Bigger = more is always real right around you.
 
 Exploration **persists to disk** per player per world
 (`plugins/CadistChunkProcessing-Pro/explored/<world>/<player>.ccpf`,
@@ -239,7 +242,7 @@ Requires JDK 21. PacketEvents must be installed on the target server.
 
 ```bash
 mvn clean package
-# -> target/CadistChunkProcessing-Pro-10.0.0-beta.jar
+# -> target/CadistChunkProcessing-Pro-10.0.1-beta.jar
 ```
 
 `paper-api 1.21.11` and `packetevents-spigot 2.12.1` are `provided` (not shaded).

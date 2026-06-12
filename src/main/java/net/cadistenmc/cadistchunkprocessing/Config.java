@@ -30,6 +30,7 @@ public final class Config {
     private volatile int fogRayDistance = 64;
     private volatile int fogRaysPerScan = 96;
     private volatile int fogMaxChunks = 50000;
+    private volatile int fogBodyRadius = 8;
     private volatile boolean fogPersist = true;
     private volatile int fogExpireDays = 0;
     private volatile boolean chunkCache = true;
@@ -69,6 +70,7 @@ public final class Config {
         this.fogRayDistance = Math.max(8, c.getInt("fog-ray-distance", 64));
         this.fogRaysPerScan = Math.max(8, c.getInt("fog-rays-per-scan", 96));
         this.fogMaxChunks = Math.max(256, c.getInt("fog-max-chunks", 50000));
+        this.fogBodyRadius = Math.max(2, Math.min(64, c.getInt("fog-body-radius", 8)));
         this.fogPersist = c.getBoolean("fog-persist", true);
         this.fogExpireDays = Math.max(0, c.getInt("fog-expire-days", 0));
         this.chunkCache = c.getBoolean("chunk-cache", true);
@@ -137,6 +139,8 @@ public final class Config {
     public int fogRayDistance() { return fogRayDistance; }
     public int fogRaysPerScan() { return fogRaysPerScan; }
     public int fogMaxChunks() { return fogMaxChunks; }
+    /** The "live radius": air within this many blocks of you is always real (the fog body bubble). */
+    public int fogBodyRadius() { return fogBodyRadius; }
     public boolean fogPersist() { return fogPersist; }
     public int fogExpireDays() { return fogExpireDays; }
     /** Any reachability feature active -> the scanner needs to run. */
@@ -175,6 +179,7 @@ public final class Config {
     public void setSurfaceEntrances(boolean v) { set("surface-entrances", v); }
     public void setFogOfWar(boolean v) { set("fog-of-war", v); }
     public void setFogRayDistance(int v) { set("fog-ray-distance", v); }
+    public void setFogBodyRadius(int v) { set("fog-body-radius", v); }
     public void setChunkCache(boolean v) { set("chunk-cache", v); }
     public void setVerticalCulling(boolean v) { set("vertical-culling", v); }
     public void setVerticalMargin(int v) { set("vertical-margin", v); }
