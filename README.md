@@ -1,7 +1,21 @@
 # CadistChunkProcessing Pro (v10 — fog-of-war remaster)
 
-Server-side chunk processing for **Paper 1.21.11** that saves upload bandwidth
-**and** makes x-ray impossible — the successor to CadistChunkProcessing v8.
+Server-side **fog-of-war chunk culling** for **Paper 1.21.11**. Players only ever
+receive the world they have actually **seen or been near** — everything else reads
+as solid rock. One plugin, three guarantees:
+
+- **Anti-freecam (the v10 flagship).** Freecam, spectator and x-ray clients learn
+  *nothing a player hasn't legitimately seen* — unexplored caves, tunnels and
+  hidden bases are sent as solid stone. This is the strongest cull a server-side
+  packet filter can give (you can't hide more without breaking normal play).
+- **Anti-xray.** Buried ore is camouflaged; buried chests/spawners are stripped
+  from the packet; a base's man-made blocks read as plain rock until you reach it.
+- **Upload-bandwidth saving.** Hidden sub-surface sections collapse to a single
+  block-state — a few bytes on the wire — typically ~90%+ on deep terrain.
+
+It is the successor to CadistChunkProcessing v8, rebuilt around fog of war (the v10
+remaster — see [What's new in v10](#whats-new-in-v10-the-fog-of-war-remaster)).
+**Drop it in and it works** — the default config turns the full kit on.
 
 ## The core idea: solidify, never void
 
@@ -68,72 +82,7 @@ PacketEvents (installed as its own plugin) is used to intercept `CHUNK_DATA`.
 The engine never touches the Bukkit API on the packet thread (LeafMC / Moonrise
 safe). On any error the packet is passed through untouched.
 
-## Reachability ore reveal
-
-The default ore policy keeps a vein visible if it's exposed to air within a fixed
-**radius** of you — which can leak ore through a wall. **Reachability ore reveal**
-(`reachability-ores`, GUI toggle, `/cadistchunk reach`) replaces that radius with
-true **reachability**: an ore stays visible only if it touches air you can
-*actually reach* — the connected cave/tunnel you're standing in. A vein a few
-blocks away behind solid rock stays hidden, the cave you're in stays fully lit,
-and it can't be peeked through a wall or with freecam (it's computed from your
-real body position, and unreachable space is never sent).
-
-A small, bounded flood-fill runs around each player on the main thread a few
-times a second (only when you move into new space); while it's warming up it
-falls back to `ore-reveal-radius`, so you never get a blank gap. Scanning is
-bounded to the real bubble and a vertical band, but on a large/busy server keep
-an eye on `/tps` after enabling. Off by default.
-
-### Reachability cave/base hiding
-
-The same reachability primitive can hide *geometry*, not just ore.
-`reachability-caves` (GUI toggle, `/cadistchunk reachcaves`) solidifies, even in
-the close-up real bubble, every cave-air cell you **can't reach** — so only the
-cave you're actually standing in stays real. A cave or base you aren't inside
-reads as solid rock even up close, and **freecam can't see it** because it was
-never sent. With `anti-base-finder` also on, the enclosed man-made blocks of a
-base you can't reach are scrubbed too, so its walls don't outline it on x-ray.
-
-Digging in the cave you're in is correct; mining a wall into a hidden pocket
-reveals it within a moment (a re-scan + re-send — never void, just a brief
-catch-up). A **sealed** base (behind a closed door/trapdoor/wall) becomes fully
-hidden; a cave that's genuinely open and walk-into-able from where a viewer
-stands is real terrain and can't be hidden. Recommended together with
-cave-hiding + anti-base-finder. Off by default.
-
-### Sealed-cave hiding
-
-`reachability-caves` is aggressive — it hides *every* cave you can't reach, which
-can pop a genuinely-open cave out of view as you move. **Sealed-cave hiding**
-(`hide-sealed-caves`, GUI toggle, `/cadistchunk sealedcaves`) is the gentle
-sibling: in the close-up real bubble it solidifies only the caves that have **no
-entrance to the open sky** — fully walled-off pockets and sealed rooms — while
-leaving every cave that genuinely reaches the surface (real, visible mouths)
-untouched. So the swiss-cheese of enclosed cavities that freecam/x-ray reveals
-around you reads as solid rock, but nothing *visible* is ever false-culled.
-
-The cave/room you're actually standing in is kept (via the same reachability
-scanner, so a sealed base behind a closed door never solidifies around you), and
-it's seam-continuous across chunks. Pure solidify — never void; mining into a
-sealed pocket reveals it within a moment. It's the natural companion to vertical
-culling: it removes the sealed caves the vertical margin would otherwise leave
-floating above the cut. Off by default.
-
-### Reveal-distance leash
-
-By default reachability reveals the *whole* connected cave system you can reach —
-so standing in or at the mouth of a big system, a viewer can still see all of it.
-**`reveal-distance`** (GUI slider) caps that: only connected air within N blocks
-(3-D, straight-line) of you stays revealed; anything further is hidden and
-re-reveals as you move closer. Freecam then sees only a bubble around you, not the
-whole system, while the cave you're actually in stays correct. It also bounds how
-far down a shaft you can see (vertical culling keeps reachable air), so set it at
-least as deep as the ravines you want to see into. `0` = unlimited (original
-behavior). Only active while a reachability feature is on (it shapes that
-scanner). This is the zero-state, no-pop-in alternative to fog-of-war.
-
-### Fog of war (strongest anti-freecam)
+## Fog of war — the v10 flagship (strongest anti-freecam)
 
 `reachability-caves` hides what you *can't reach*; **fog of war** (`fog-of-war`,
 GUI toggle, `/cadistchunk fog`) hides what you *haven't seen*. In the REAL bubble
@@ -171,7 +120,7 @@ change resets the in-memory set, which rebuilds within a second of moving/lookin
 jar in gives aggressive anti-freecam + anti-xray out of the box. Set `fog-of-war:
 false` to fall back to the lighter distance-only hiding.
 
-### Surface-entrance camouflage
+## Surface-entrance camouflage
 
 A buried base is hidden, but its **door at the surface** — a trapdoor, ladder
 shaft, hatch or water-lift dropping into the ground — still gives it away from a
@@ -187,6 +136,70 @@ and artificial/fluid-gated so natural ravines and cave mouths are left alone, an
 pure-solidify so it never creates void. A base left **wide open to the sky** (a
 big sinkhole/open cavern) is surface terrain and can't be hidden this way — seal
 the entrance. Off by default.
+
+## Legacy hiders (superseded by fog of war)
+
+> The four features below — reachability ore reveal, reachability cave hiding,
+> sealed-cave hiding, and the reveal-distance leash — predate fog of war, which
+> does all of it better and more aggressively. They are **off by default** and live
+> on the **Outdated** sub-page of the GUI (bottom-right). Use them only if you run
+> with `fog-of-war: false`. Documented here for completeness.
+
+### Reachability ore reveal
+
+The default ore policy keeps a vein visible if it's exposed to air within a fixed
+**radius** of you — which can leak ore through a wall. **Reachability ore reveal**
+(`reachability-ores`, GUI toggle, `/cadistchunk reach`) replaces that radius with
+true **reachability**: an ore stays visible only if it touches air you can
+*actually reach* — the connected cave/tunnel you're standing in. A vein a few
+blocks away behind solid rock stays hidden, the cave you're in stays fully lit,
+and it can't be peeked through a wall or with freecam (it's computed from your
+real body position, and unreachable space is never sent).
+
+A small, bounded flood-fill runs around each player on the main thread a few
+times a second (only when you move into new space); while it's warming up it
+falls back to `ore-reveal-radius`, so you never get a blank gap. Scanning is
+bounded to the real bubble and a vertical band, but on a large/busy server keep
+an eye on `/tps` after enabling. Off by default.
+
+### Reachability cave/base hiding
+
+The same reachability primitive can hide *geometry*, not just ore.
+`reachability-caves` (GUI toggle, `/cadistchunk reachcaves`) solidifies, even in
+the close-up real bubble, every cave-air cell you **can't reach** — so only the
+cave you're actually standing in stays real. A cave or base you aren't inside
+reads as solid rock even up close, and **freecam can't see it** because it was
+never sent. With `anti-base-finder` also on, the enclosed man-made blocks of a
+base you can't reach are scrubbed too, so its walls don't outline it on x-ray.
+
+Digging in the cave you're in is correct; mining a wall into a hidden pocket
+reveals it within a moment (a re-scan + re-send — never void, just a brief
+catch-up). A **sealed** base (behind a closed door/trapdoor/wall) becomes fully
+hidden; a cave that's genuinely open and walk-into-able from where a viewer
+stands is real terrain and can't be hidden. Off by default.
+
+### Sealed-cave hiding
+
+`reachability-caves` is aggressive — it hides *every* cave you can't reach, which
+can pop a genuinely-open cave out of view as you move. **Sealed-cave hiding**
+(`hide-sealed-caves`, GUI toggle, `/cadistchunk sealedcaves`) is the gentle
+sibling: in the close-up real bubble it solidifies only the caves that have **no
+entrance to the open sky** — fully walled-off pockets and sealed rooms — while
+leaving every cave that genuinely reaches the surface (real, visible mouths)
+untouched, so nothing *visible* is ever false-culled.
+
+The cave/room you're actually standing in is kept (via the same reachability
+scanner), and it's seam-continuous across chunks. Pure solidify — never void.
+Off by default.
+
+### Reveal-distance leash
+
+By default reachability reveals the *whole* connected cave system you can reach —
+so standing in or at the mouth of a big system, a viewer can still see all of it.
+**`reveal-distance`** (GUI slider, on the Outdated page) caps that: only connected
+air within N blocks (3-D) of you stays revealed; anything further is hidden and
+re-reveals as you move closer. `0` = unlimited. Only active while a reachability
+feature is on (it shapes that scanner). Fog of war is the stronger replacement.
 
 ## Recommended setups
 

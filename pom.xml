@@ -11,7 +11,7 @@
     <packaging>jar</packaging>
 
     <name>CadistChunkProcessingPro</name>
-    <description>Solidify-don't-void chunk processing: bandwidth saving + anti-xray cave/ore hiding for Paper 1.21.11. Successor to CadistChunkProcessing v8.</description>
+    <description>Fog-of-war chunk culling for Paper 1.21.11: hide everything players haven't seen (anti-freecam) + anti-xray ore/base hiding + upload-bandwidth saving. Solidify, never void.</description>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
