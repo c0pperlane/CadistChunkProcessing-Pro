@@ -79,11 +79,8 @@ public final class CadistChunkProcessingPro extends JavaPlugin {
                 + " fog-of-war=" + config.fogOfWar());
     }
 
-    /**
-     * bStats plugin id. Register the plugin at https://bstats.org/getting-started
-     * and replace this with the id it gives you; metrics stay dormant until then.
-     */
-    private static final int BSTATS_PLUGIN_ID = 0;
+    /** bStats plugin id (registered at https://bstats.org). Metrics respect {@code metrics:}. */
+    private static final int BSTATS_PLUGIN_ID = 31989;
 
     /** Anonymous usage metrics via bStats (shaded + relocated). Opt-out via {@code metrics: false}. */
     private void initMetrics() {
