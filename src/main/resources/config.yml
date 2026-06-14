@@ -158,7 +158,10 @@ fog-of-war: true
 fog-ray-distance: 64
 # The "live radius": the bubble around you that is ALWAYS real, even cells you
 # haven't actually looked at (digging safety + never being buried in fog). 2-64.
-# Bigger = more is always visible right around you, at more scan cost.
+# COST WARNING: this floods all connected air inside the bubble, so the work grows
+# with its VOLUME (~radius^3) — every +1 is a lot more, doubling it is ~8x. Keep it
+# small (8-16). To see FARTHER, raise fog-ray-distance instead (that scales linearly,
+# far cheaper). The flood only runs when you actually move, not when you look around.
 fog-body-radius: 8
 # Sight rays cast per player per scan (a global per-tick governor caps the total).
 fog-rays-per-scan: 96

@@ -310,8 +310,19 @@ public final class ExploredSetService implements Listener {
         final int fMinY = minY, fMaxY = maxY, fYSize = ySize;
         SightMarch.Visitor marker = (x, y, z) -> mark(scan, bitsLen, x, y, z, fMinY, fYSize);
 
-        // --- Body source: an 8-block air/fluid flood around the player (always explored). ---
-        bodyFlood(snaps, px, p.getLocation().getBlockY(), pz, minY, maxY, marker);
+        // --- Body source: connected air within the live radius (always explored). ---
+        // The bubble depends only on POSITION, not look direction, and the explored
+        // set is cumulative — so when the player only turned (same block position) it
+        // is already marked and we skip the flood entirely. This matters because the
+        // flood cost grows with the bubble's volume (~radius^3): gating it to actual
+        // movement keeps a large fog-body-radius from running on every look-around.
+        boolean moved = prev == null
+                || Math.abs(prev[0] - px) >= MOVE_THRESHOLD
+                || Math.abs(prev[1] - py) >= MOVE_THRESHOLD
+                || Math.abs(prev[2] - pz) >= MOVE_THRESHOLD;
+        if (moved) {
+            bodyFlood(snaps, px, p.getLocation().getBlockY(), pz, minY, maxY, marker);
+        }
 
         // --- Sight source: rays from the eye through server-truth geometry. ---
         int rays = Math.min(config.fogRaysPerScan(), Math.max(0, rayBudget));
