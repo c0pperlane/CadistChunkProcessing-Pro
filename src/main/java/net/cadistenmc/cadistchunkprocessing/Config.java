@@ -41,6 +41,7 @@ public final class Config {
     private volatile int oreRevealRadius = 16;
     private volatile int revealDistance = 0;
     private volatile boolean debug = false;
+    private volatile boolean metrics = true;
     private volatile List<String> extraOres = List.of();
     private volatile int refreshPerTick = 6;
     private volatile int joinRawSeconds = 0;
@@ -81,6 +82,7 @@ public final class Config {
         this.oreRevealRadius = Math.max(0, c.getInt("ore-reveal-radius", 16));
         this.revealDistance = Math.max(0, c.getInt("reveal-distance", 0));
         this.debug = c.getBoolean("debug", false);
+        this.metrics = c.getBoolean("metrics", true);
 
         List<String> extra = c.getStringList("extra-ores");
         this.extraOres = (extra == null) ? List.of() : List.copyOf(extra);
@@ -157,6 +159,8 @@ public final class Config {
     /** Cap (blocks, 3D) on how far reachability reveals around the player; 0 = unlimited. */
     public int revealDistance() { return revealDistance; }
     public boolean debug() { return debug; }
+    /** Send anonymous usage metrics via bStats. */
+    public boolean metrics() { return metrics; }
     public int refreshPerTick() { return refreshPerTick; }
     public int joinRawSeconds() { return joinRawSeconds; }
 
