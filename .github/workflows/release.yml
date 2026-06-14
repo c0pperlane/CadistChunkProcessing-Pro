@@ -75,6 +75,10 @@ jobs:
           name: "CadistChunkProcessing Pro ${{ steps.meta.outputs.tag }}"
           draft: false
           prerelease: ${{ inputs.prerelease || false }}
+          # Force "Latest" for non-prereleases: GitHub's automatic latest-selection
+          # otherwise excludes SemVer pre-release tags (e.g. -beta), leaving an older
+          # stable release wearing the badge.
+          make_latest: ${{ (inputs.prerelease && 'false') || 'true' }}
           generate_release_notes: true
           files: ${{ steps.jar.outputs.path }}
           body: |
