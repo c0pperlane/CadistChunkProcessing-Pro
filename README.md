@@ -121,8 +121,9 @@ always-real bubble around you — the live radius that stays visible even where 
 haven't looked, for digging safety. It floods all connected air inside the bubble,
 so its cost grows with the bubble's **volume (~radius³)**: every +1 is noticeably
 more work and doubling it is ~8×. Keep it small (8–16) and use `fog-ray-distance`
-for reach. The flood only runs when you actually **move** (not when you look
-around), so standing still and turning is free.
+for reach. The flood only re-runs after you move **~radius/4 blocks** (not every
+block, and never when only looking), so a bigger radius re-floods proportionally
+less often and re-visiting already-explored ground costs nothing.
 
 Exploration **persists to disk** per player per world
 (`plugins/CadistChunkProcessing-Pro/explored/<world>/<player>.ccpf`,
@@ -270,7 +271,7 @@ Requires JDK 21. PacketEvents must be installed on the target server.
 
 ```bash
 mvn clean package
-# -> target/CadistChunkProcessing-Pro-10.2.2-beta.jar
+# -> target/CadistChunkProcessing-Pro-10.2.3-beta.jar
 ```
 
 `paper-api 1.21.11` and `packetevents-spigot 2.12.1` are `provided` (not shaded).

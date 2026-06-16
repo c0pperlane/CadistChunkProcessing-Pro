@@ -49,8 +49,6 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ExploredSetService implements Listener {
 
-    /** Recompute only after the player moves at least this many blocks (or turns; see {@link #compute}). */
-    private static final int MOVE_THRESHOLD = 1;
     /** Scan cadence in ticks. */
     private static final long PERIOD = 4L;
     /** Hard cap on total sight rays cast per tick across all players (the governor). */
@@ -89,6 +87,7 @@ public final class ExploredSetService implements Listener {
 
     private final ConcurrentHashMap<UUID, Fog> byPlayer = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, int[]> lastScan = new ConcurrentHashMap<>(); // {x,y,z,yawDeg,pitchDeg}
+    private final ConcurrentHashMap<UUID, int[]> lastBody = new ConcurrentHashMap<>(); // {x,y,z} of last body flood
     private BukkitTask task;
     private final Random rng = new Random();
 
@@ -107,16 +106,19 @@ public final class ExploredSetService implements Listener {
         if (task != null) task.cancel();
         byPlayer.clear();
         lastScan.clear();
+        lastBody.clear();
     }
 
     public void clear() {
         byPlayer.clear();
         lastScan.clear();
+        lastBody.clear();
     }
 
     /** Force the next scan to run (e.g. the player mined into new space). */
     public void invalidate(UUID id) {
         lastScan.remove(id);
+        lastBody.remove(id);
     }
 
     // ---- packet-thread accessors (race-free: a published long[] is never mutated in place) ----
@@ -146,7 +148,7 @@ public final class ExploredSetService implements Listener {
 
     private void tick() {
         if (!config.fogActive()) {
-            if (!byPlayer.isEmpty()) { byPlayer.clear(); lastScan.clear(); }
+            if (!byPlayer.isEmpty()) { byPlayer.clear(); lastScan.clear(); lastBody.clear(); }
             return;
         }
         int rayBudget = MAX_RAYS_PER_TICK;
@@ -160,6 +162,7 @@ public final class ExploredSetService implements Listener {
         }
         byPlayer.keySet().removeIf(id -> Bukkit.getPlayer(id) == null);
         lastScan.keySet().removeIf(id -> Bukkit.getPlayer(id) == null);
+        lastBody.keySet().removeIf(id -> Bukkit.getPlayer(id) == null);
 
         // Periodic flush so a crash loses at most ~one interval of exploration.
         if (persistOn() && System.currentTimeMillis() - lastFlush >= FLUSH_INTERVAL_MS) {
@@ -186,6 +189,7 @@ public final class ExploredSetService implements Listener {
         saveAsync(id);
         byPlayer.remove(id);
         lastScan.remove(id);
+        lastBody.remove(id);
     }
 
     @EventHandler
@@ -194,6 +198,7 @@ public final class ExploredSetService implements Listener {
         saveAsync(id);                                  // save the world we just left (fog still holds it)
         byPlayer.remove(id);                            // compute() would reset anyway; drop now so load can seed
         lastScan.remove(id);
+        lastBody.remove(id);
         loadAsync(id, e.getPlayer().getWorld().getUID());
     }
 
@@ -242,7 +247,7 @@ public final class ExploredSetService implements Listener {
             scheduler.enqueue(id, (int) (ck >> 32), (int) ck);
             any = true;
         }
-        if (any) lastScan.remove(id);                   // force a fresh scan so it re-sends/extends
+        if (any) { lastScan.remove(id); lastBody.remove(id); }   // force a fresh scan so it re-sends/extends
     }
 
     private void saveAsync(UUID id) {
@@ -287,17 +292,24 @@ public final class ExploredSetService implements Listener {
         boolean sightRays = config.fogSightRays();
 
         int[] prev = lastScan.get(id);
-        boolean moved = prev == null
-                || Math.abs(prev[0] - px) >= MOVE_THRESHOLD
-                || Math.abs(prev[1] - py) >= MOVE_THRESHOLD
-                || Math.abs(prev[2] - pz) >= MOVE_THRESHOLD;
-        // A look change only matters when sight rays are on, and only past a small
-        // threshold so fine mouse jitter doesn't trigger a full re-scan.
+        // Only re-run the (cubic) body flood once the player has moved a meaningful
+        // fraction of the bubble radius — overlapping spheres + the cumulative explored
+        // set mean re-flooding every block just re-covers known ground. In already-
+        // explored territory the player thus coasts on the set with no scan work; the
+        // flood only fires near the exploration frontier. Stride scales with the radius
+        // so a big live radius re-floods far less often (the CPU-spike fix).
+        int[] lb = lastBody.get(id);
+        int stride = Math.max(2, config.fogBodyRadius() / 4);
+        boolean moved = lb == null
+                || (lb[0] - px) * (lb[0] - px) + (lb[1] - py) * (lb[1] - py)
+                   + (lb[2] - pz) * (lb[2] - pz) >= stride * stride;
+        // A look change only matters when sight rays are on, past a small threshold so
+        // fine mouse jitter doesn't trigger a re-scan.
         boolean looked = sightRays && prev != null
                 && (yawDiff(prev[3], yawDeg) >= LOOK_THRESHOLD_DEG
                     || Math.abs(prev[4] - pitchDeg) >= LOOK_THRESHOLD_DEG);
         if (prev != null && byPlayer.containsKey(id) && !moved && !looked) {
-            return 0;   // hasn't moved enough or turned enough — set unchanged
+            return 0;   // not far enough into new territory, and not turned enough
         }
 
         int minY = w.getMinHeight(), maxY = w.getMaxHeight();
@@ -341,6 +353,7 @@ public final class ExploredSetService implements Listener {
         // is cumulative — so when the player only turned we skip the flood entirely.
         if (moved) {
             bodyFlood(snaps, px, p.getLocation().getBlockY(), pz, minY, maxY, marker);
+            lastBody.put(id, new int[]{px, py, pz});
         }
 
         // --- Sight source: rays from the eye (only when sight rays are enabled). ---
