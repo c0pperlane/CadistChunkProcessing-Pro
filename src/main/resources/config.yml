@@ -176,6 +176,11 @@ fog-block-updates: true
 # far cheaper). The flood only re-runs after you move ~radius/4 blocks (not every block
 # and not when looking around), so already-explored ground costs nothing to revisit.
 fog-body-radius: 8
+# How far (blocks) you must MOVE before the fog re-culls and reveals new area as you
+# walk. Lower = snappier updates (less visible delay) at more CPU; higher = smoother
+# CPU at more delay. 0 = AUTO: scales with the live radius (radius / 4), so a big
+# bubble re-floods proportionally less often. Also a GUI slider ("Fog update distance").
+fog-move-stride: 0
 # Sight rays cast per player per scan (a global per-tick governor caps the total).
 fog-rays-per-scan: 96
 # Per-player cap on remembered explored chunks (farthest are evicted past this).

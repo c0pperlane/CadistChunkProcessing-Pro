@@ -31,6 +31,7 @@ public final class Config {
     private volatile int fogRaysPerScan = 96;
     private volatile int fogMaxChunks = 50000;
     private volatile int fogBodyRadius = 8;
+    private volatile int fogMoveStride = 0;
     private volatile boolean fogSightRays = true;
     private volatile boolean fogBlockUpdates = true;
     private volatile boolean fogPersist = true;
@@ -74,6 +75,7 @@ public final class Config {
         this.fogRaysPerScan = Math.max(8, c.getInt("fog-rays-per-scan", 96));
         this.fogMaxChunks = Math.max(256, c.getInt("fog-max-chunks", 50000));
         this.fogBodyRadius = Math.max(2, Math.min(64, c.getInt("fog-body-radius", 8)));
+        this.fogMoveStride = Math.max(0, Math.min(64, c.getInt("fog-move-stride", 0)));
         this.fogSightRays = c.getBoolean("fog-sight-rays", false);
         this.fogBlockUpdates = c.getBoolean("fog-block-updates", true);
         this.fogPersist = c.getBoolean("fog-persist", true);
@@ -147,6 +149,8 @@ public final class Config {
     public int fogMaxChunks() { return fogMaxChunks; }
     /** The "live radius": air within this many blocks of you is always real (the fog body bubble). */
     public int fogBodyRadius() { return fogBodyRadius; }
+    /** Blocks you must move before the fog re-culls/reveals new area; 0 = auto (live radius / 4). */
+    public int fogMoveStride() { return fogMoveStride; }
     /** Reveal what you LOOK at via eye raycasts (max anti-freecam). Off = reveal only what you walk near. */
     public boolean fogSightRays() { return fogSightRays; }
     /** Reveal newly-seen cells with per-block updates (cheap) instead of full chunk re-sends. */
@@ -193,6 +197,7 @@ public final class Config {
     public void setFogRayDistance(int v) { set("fog-ray-distance", v); }
     public void setFogSightRays(boolean v) { set("fog-sight-rays", v); }
     public void setFogBodyRadius(int v) { set("fog-body-radius", v); }
+    public void setFogMoveStride(int v) { set("fog-move-stride", v); }
     public void setChunkCache(boolean v) { set("chunk-cache", v); }
     public void setVerticalCulling(boolean v) { set("vertical-culling", v); }
     public void setVerticalMargin(int v) { set("vertical-margin", v); }

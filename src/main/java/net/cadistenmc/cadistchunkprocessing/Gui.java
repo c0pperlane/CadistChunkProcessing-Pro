@@ -38,7 +38,7 @@ public final class Gui implements Listener {
     private static final TextColor OVERLAY = TextColor.color(0x6C7086);
 
     // ---- main page (modern kit) ----
-    private static final int FOG = 10, FOG_DIST = 11, FOG_BODY = 12, FOG_SIGHT = 13;
+    private static final int FOG = 10, FOG_DIST = 11, FOG_BODY = 12, FOG_SIGHT = 13, FOG_STRIDE = 15;
     private static final int ANTI_BASE = 14, ENTRANCES = 16;
     private static final int ORE = 19, HIDE_ALL = 20, BLOCK_ENT = 21, ORE_RADIUS = 22;
     private static final int CAVE = 24, VCULL = 25, VMARGIN = 26;
@@ -108,6 +108,14 @@ public final class Gui implements Listener {
                         line("uses the ray distance below). Click to toggle.", SUB))));
         inv.setItem(FOG_DIST, slider(Material.SPYGLASS, "Look-reveal distance", c.fogRayDistance(), "blocks",
                 "How far look-reveal rays reach (only when look-reveal is ON). Higher = farther, more cost. Left +8 / Right -8."));
+        int stride = c.fogMoveStride();
+        inv.setItem(FOG_STRIDE, item(Material.CLOCK,
+                Component.text("Fog update distance: " + (stride == 0 ? "Auto" : stride + " blocks"), TEXT),
+                List.of(line("How far you MOVE before the fog re-culls and reveals", SUB),
+                        line("new area as you walk. Lower = snappier updates, more", SUB),
+                        line("CPU; higher = smoother CPU, more delay. Auto scales", SUB),
+                        line("with the live radius (radius / 4).", SUB),
+                        line("Left-click +1  /  Right-click -1  (0 = Auto)", SUB))));
 
         inv.setItem(ANTI_BASE, item(c.antiBaseFinder() ? Material.SCULK_SENSOR : Material.SCULK_SHRIEKER,
                 Component.text("Anti-Base Finder", c.antiBaseFinder() ? GREEN : RED),
@@ -286,6 +294,7 @@ public final class Gui implements Listener {
             case FOG_SIGHT -> c.setFogSightRays(!c.fogSightRays());
             case FOG_DIST -> c.setFogRayDistance(clamp(c.fogRayDistance() + (left ? 8 : -8), 8, 256));
             case FOG_BODY -> c.setFogBodyRadius(clamp(c.fogBodyRadius() + (left ? 2 : -2), 2, 64));
+            case FOG_STRIDE -> c.setFogMoveStride(clamp(c.fogMoveStride() + (left ? 1 : -1), 0, 64));
             case ANTI_BASE -> c.setAntiBaseFinder(!c.antiBaseFinder());
             case ENTRANCES -> c.setSurfaceEntrances(!c.surfaceEntrances());
             case ORE -> c.setOreHiding(!c.oreHiding());

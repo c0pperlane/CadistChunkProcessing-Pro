@@ -309,7 +309,11 @@ public final class ExploredSetService implements Listener {
         // flood only fires near the exploration frontier. Stride scales with the radius
         // so a big live radius re-floods far less often (the CPU-spike fix).
         int[] lb = lastBody.get(id);
-        int stride = Math.max(2, config.fogBodyRadius() / 4);
+        // Re-cull cadence by distance moved. 0 = auto (scales with the radius so a big
+        // bubble re-floods proportionally less often); a configured value pins it (lower
+        // = snappier culls as you walk, more CPU; higher = smoother CPU, more delay).
+        int cfgStride = config.fogMoveStride();
+        int stride = cfgStride > 0 ? cfgStride : Math.max(2, config.fogBodyRadius() / 4);
         boolean moved = lb == null
                 || (lb[0] - px) * (lb[0] - px) + (lb[1] - py) * (lb[1] - py)
                    + (lb[2] - pz) * (lb[2] - pz) >= stride * stride;

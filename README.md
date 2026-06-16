@@ -122,8 +122,10 @@ mouse jitter (&lt; 5°) and looking at open sky never trigger work.
 always-real bubble around you — the live radius that stays visible even where you
 haven't looked, for digging safety. It floods the connected air inside the bubble,
 so its cost grows with the bubble's **volume (~radius³)**. Three things keep a big
-radius affordable: the flood only re-runs after you move **~radius/4 blocks** (never
-when only looking); cells already in your explored set are **skipped entirely** (re-
+radius affordable: the flood only re-runs after you move a stride (**`fog-move-stride`**,
+GUI slider "Fog update distance"; default `0` = auto = ~radius/4 blocks — lower for
+snappier culls at more CPU, higher for smoother CPU at more delay), and never when only
+looking; cells already in your explored set are **skipped entirely** (re-
 visiting known ground costs nothing); and chunk geometry is read from a **per-tick
 snapshot cache shared across all players** (a clustered server copies each chunk once,
 not once per player). With look-reveal off, the scan also only snapshots the bubble
