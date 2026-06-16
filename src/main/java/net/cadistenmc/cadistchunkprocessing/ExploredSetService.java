@@ -61,6 +61,12 @@ public final class ExploredSetService implements Listener {
     private static final double FRUSTUM_HALF_ANGLE = 55.0;
     /** Flush all players' sets to disk at least this often (ms). */
     private static final long FLUSH_INTERVAL_MS = 60_000L;
+    /** Ignore look changes smaller than this (degrees) so fine mouse jitter doesn't re-scan. */
+    private static final int LOOK_THRESHOLD_DEG = 5;
+    /** Above this many newly-revealed cells in one chunk, a full chunk re-send is cheaper than per-block updates. */
+    private static final int PER_CHUNK_BLOCK_CAP = 256;
+    /** Hard cap on per-block reveal updates sent to one player per scan (overflow falls back to chunk re-send). */
+    private static final int MAX_BLOCK_UPDATES_PER_SCAN = 8192;
 
     private final JavaPlugin plugin;
     private final Config config;
@@ -128,6 +134,12 @@ public final class ExploredSetService implements Listener {
 
     static long key(int x, int z) {
         return ((long) x << 32) | (z & 0xFFFFFFFFL);
+    }
+
+    /** Smallest absolute angular difference (degrees, 0..180) between two yaw values. */
+    static int yawDiff(int a, int b) {
+        int d = Math.abs(a - b) % 360;
+        return d > 180 ? 360 - d : d;
     }
 
     // ---- main-thread scan ----
@@ -270,16 +282,22 @@ public final class ExploredSetService implements Listener {
 
         Location eye = p.getEyeLocation();
         int px = eye.getBlockX(), py = eye.getBlockY(), pz = eye.getBlockZ();
-        int yawDeg = ((int) eye.getYaw()) % 360;
+        int yawDeg = Math.floorMod((int) eye.getYaw(), 360);
         int pitchDeg = (int) eye.getPitch();
+        boolean sightRays = config.fogSightRays();
 
         int[] prev = lastScan.get(id);
-        if (prev != null && byPlayer.containsKey(id)
-                && Math.abs(prev[0] - px) < MOVE_THRESHOLD
-                && Math.abs(prev[1] - py) < MOVE_THRESHOLD
-                && Math.abs(prev[2] - pz) < MOVE_THRESHOLD
-                && prev[3] == yawDeg && prev[4] == pitchDeg) {
-            return 0;   // hasn't moved or turned — the cumulative set is unchanged
+        boolean moved = prev == null
+                || Math.abs(prev[0] - px) >= MOVE_THRESHOLD
+                || Math.abs(prev[1] - py) >= MOVE_THRESHOLD
+                || Math.abs(prev[2] - pz) >= MOVE_THRESHOLD;
+        // A look change only matters when sight rays are on, and only past a small
+        // threshold so fine mouse jitter doesn't trigger a full re-scan.
+        boolean looked = sightRays && prev != null
+                && (yawDiff(prev[3], yawDeg) >= LOOK_THRESHOLD_DEG
+                    || Math.abs(prev[4] - pitchDeg) >= LOOK_THRESHOLD_DEG);
+        if (prev != null && byPlayer.containsKey(id) && !moved && !looked) {
+            return 0;   // hasn't moved enough or turned enough — set unchanged
         }
 
         int minY = w.getMinHeight(), maxY = w.getMaxHeight();
@@ -304,56 +322,104 @@ public final class ExploredSetService implements Listener {
             }
         }
 
-        // Cells newly marked this scan, per chunk.
+        // Cells newly marked this scan, per chunk. The marker skips cells at/above the
+        // column's surface: only sub-surface cave air is ever hidden by the engine, so
+        // marking open sky changes nothing visible yet would needlessly re-send chunks
+        // (the main cause of FPS drops when looking around outdoors).
         final int bitsLen = fog.bitsLen;
         Map<Long, long[]> scan = new HashMap<>();
-        final int fMinY = minY, fMaxY = maxY, fYSize = ySize;
-        SightMarch.Visitor marker = (x, y, z) -> mark(scan, bitsLen, x, y, z, fMinY, fYSize);
+        final int fMinY = minY, fYSize = ySize;
+        final Map<Long, ChunkSnapshot> fSnaps = snaps;
+        SightMarch.Visitor marker = (x, y, z) -> {
+            ChunkSnapshot s = fSnaps.get(key(x >> 4, z >> 4));
+            if (s == null || y >= s.getHighestBlockYAt(x & 15, z & 15)) return;
+            mark(scan, bitsLen, x, y, z, fMinY, fYSize);
+        };
 
         // --- Body source: connected air within the live radius (always explored). ---
-        // The bubble depends only on POSITION, not look direction, and the explored
-        // set is cumulative — so when the player only turned (same block position) it
-        // is already marked and we skip the flood entirely. This matters because the
-        // flood cost grows with the bubble's volume (~radius^3): gating it to actual
-        // movement keeps a large fog-body-radius from running on every look-around.
-        boolean moved = prev == null
-                || Math.abs(prev[0] - px) >= MOVE_THRESHOLD
-                || Math.abs(prev[1] - py) >= MOVE_THRESHOLD
-                || Math.abs(prev[2] - pz) >= MOVE_THRESHOLD;
+        // The bubble depends only on POSITION, not look direction, and the explored set
+        // is cumulative — so when the player only turned we skip the flood entirely.
         if (moved) {
             bodyFlood(snaps, px, p.getLocation().getBlockY(), pz, minY, maxY, marker);
         }
 
-        // --- Sight source: rays from the eye through server-truth geometry. ---
-        int rays = Math.min(config.fogRaysPerScan(), Math.max(0, rayBudget));
-        double dist = config.fogRayDistance();
-        SightMarch.BlockAccess access = (x, y, z) -> sightTransparent(snaps, x, y, z, fMinY, fMaxY);
-        castRays(access, marker, eye, rays, dist);
+        // --- Sight source: rays from the eye (only when sight rays are enabled). ---
+        int rays = 0;
+        if (sightRays) {
+            rays = Math.min(config.fogRaysPerScan(), Math.max(0, rayBudget));
+            double dist = config.fogRayDistance();
+            SightMarch.BlockAccess access = (x, y, z) -> sightTransparent(fSnaps, x, y, z, fMinY, maxY);
+            castRays(access, marker, eye, rays, dist);
+        }
 
-        // --- Merge copy-on-write into the cumulative set; enqueue changed chunks. ---
+        // --- Merge the scan into the cumulative set and reveal ONLY the changed blocks. ---
+        // The right fix (vs. re-sending whole chunks): for each cell that flips
+        // hidden -> revealed, push its real block state to the player with a single
+        // block-change. The client updates a handful of blocks instead of re-meshing
+        // the entire 24-section column, so looking/walking around a frontier no longer
+        // tanks FPS. A chunk with a huge first reveal (a whole cavern at once) falls
+        // back to one full chunk re-send, which is cheaper than thousands of updates.
+        boolean blockUpdates = config.fogBlockUpdates();
+        int budget = MAX_BLOCK_UPDATES_PER_SCAN;
         for (Map.Entry<Long, long[]> e : scan.entrySet()) {
             long ck = e.getKey();
             long[] add = e.getValue();
             long[] old = fog.bits.get(ck);
+
+            // Count the cells that actually flip to revealed this scan.
+            int revealed = 0;
+            for (int i = 0; i < bitsLen; i++) {
+                revealed += Long.bitCount(add[i] & ~(old == null ? 0L : old[i]));
+            }
+            if (revealed == 0) continue;                 // nothing new in this chunk
+
             long[] merged;
             if (old == null) {
-                merged = add;                            // fresh chunk: the scan array is already private
+                merged = add;
             } else {
                 merged = old.clone();
-                boolean changed = false;
-                for (int i = 0; i < bitsLen; i++) {
-                    long m = merged[i] | add[i];
-                    if (m != merged[i]) { merged[i] = m; changed = true; }
-                }
-                if (!changed) continue;                  // nothing new in this chunk
+                for (int i = 0; i < bitsLen; i++) merged[i] |= add[i];
             }
             fog.bits.put(ck, merged);
-            scheduler.enqueue(id, (int) (ck >> 32), (int) ck);
+
+            if (blockUpdates && revealed <= PER_CHUNK_BLOCK_CAP && revealed <= budget) {
+                budget -= sendRevealedBlocks(p, w, fSnaps, ck, add, old, bitsLen, minY);
+            } else {
+                scheduler.enqueue(id, (int) (ck >> 32), (int) ck);   // big/disabled -> one full re-send
+            }
         }
 
         evictIfOverCap(fog, pcx, pcz);
         lastScan.put(id, new int[]{px, py, pz, yawDeg, pitchDeg});
         return rays;
+    }
+
+    /**
+     * Push the real block state of each newly-revealed cell ({@code add & ~old}) to the
+     * player as a single block-change — the client updates a few blocks instead of
+     * re-meshing the whole chunk column. Returns the number of updates sent.
+     */
+    private int sendRevealedBlocks(Player p, World w, Map<Long, ChunkSnapshot> snaps,
+                                   long ck, long[] add, long[] old, int bitsLen, int minY) {
+        ChunkSnapshot snap = snaps.get(ck);
+        if (snap == null) {                              // no snapshot -> fall back to a full re-send
+            scheduler.enqueue(p.getUniqueId(), (int) (ck >> 32), (int) ck);
+            return 0;
+        }
+        int baseX = (int) (ck >> 32) << 4, baseZ = (int) ck << 4;
+        int sent = 0;
+        for (int wi = 0; wi < bitsLen; wi++) {
+            long bitsNew = add[wi] & ~(old == null ? 0L : old[wi]);
+            while (bitsNew != 0L) {
+                int idx = (wi << 6) | Long.numberOfTrailingZeros(bitsNew);
+                bitsNew &= bitsNew - 1;
+                int lx = idx & 15, lz = (idx >> 4) & 15, wy = (idx >> 8) + minY;
+                org.bukkit.block.data.BlockData data = snap.getBlockData(lx, wy, lz);
+                p.sendBlockChange(new Location(w, baseX + lx, wy, baseZ + lz), data);
+                sent++;
+            }
+        }
+        return sent;
     }
 
     /** Mark one absolute cell explored in the per-scan bitset. */

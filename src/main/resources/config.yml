@@ -154,8 +154,17 @@ surface-entrances: false
 # (see fog-persist) so it survives restarts. A settings change resets the live
 # set; it rebuilds within a second of moving/looking and reloads from disk on join.
 fog-of-war: true
+# Reveal what you LOOK at, via eye raycasts (the strongest anti-freecam). Set false
+# to reveal ONLY what you walk near (the live radius below) - cheaper and purely
+# movement-driven (no look-vector cost), but a viewer can see the bubble around a
+# player even where they haven't faced. true = max anti-freecam, false = lighter.
+fog-sight-rays: true
 # How far (blocks) sight rays reveal. Higher sees/reveals farther at more cost.
 fog-ray-distance: 64
+# Reveal newly-seen cells with per-BLOCK updates (only the blocks that change) rather
+# than re-sending whole chunks. This is what keeps FPS up while exploring; leave on.
+# (A very large first reveal of a whole cavern still uses one chunk re-send.)
+fog-block-updates: true
 # The "live radius": the bubble around you that is ALWAYS real, even cells you
 # haven't actually looked at (digging safety + never being buried in fog). 2-64.
 # COST WARNING: this floods all connected air inside the bubble, so the work grows

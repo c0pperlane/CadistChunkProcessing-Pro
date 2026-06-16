@@ -102,10 +102,19 @@ pocket reveals it within a moment (re-scan + re-send — never void). It **subsu
 `reachability-caves`** when both are on (fog is the stricter keep), and vertical
 culling keeps everything you've explored open to its floor.
 
-A bounded, throttled main-thread eye-raycast scan runs per moving/looking player
-(a global per-tick ray governor caps the total) — watch `/tps` on a very large
-server. `fog-ray-distance` (GUI slider) sets how far sight reveals — it scales
-roughly **linearly**, so it's the cheap knob for seeing farther.
+**Reveals are block-level, not chunk-level.** When a cell becomes visible, only that
+block's real state is pushed to the player (`fog-block-updates`, on by default) —
+the client updates a handful of blocks instead of re-meshing the whole 24-section
+column. This is what keeps client **FPS** up while exploring; a huge first reveal of
+a whole cavern still uses one chunk re-send (cheaper than thousands of updates).
+
+`fog-sight-rays` (on by default) controls whether **looking** reveals (eye raycasts
+— the strongest anti-freecam). Set it `false` to reveal only what you **walk near**
+(the live radius below): purely movement-driven, no look-vector cost, but a viewer
+can then see the bubble around a player even where they haven't faced. The sight
+scan is bounded/throttled with a global per-tick ray governor; `fog-ray-distance`
+(GUI slider) sets how far sight reveals and scales roughly **linearly** — the cheap
+knob for reach. Fine mouse jitter (&lt; 5°) and looking at open sky never trigger work.
 
 **`fog-body-radius`** (GUI slider "Fog live radius", default 8, 2–64) sets the
 always-real bubble around you — the live radius that stays visible even where you
@@ -261,7 +270,7 @@ Requires JDK 21. PacketEvents must be installed on the target server.
 
 ```bash
 mvn clean package
-# -> target/CadistChunkProcessing-Pro-10.2.1-beta.jar
+# -> target/CadistChunkProcessing-Pro-10.2.2-beta.jar
 ```
 
 `paper-api 1.21.11` and `packetevents-spigot 2.12.1` are `provided` (not shaded).
