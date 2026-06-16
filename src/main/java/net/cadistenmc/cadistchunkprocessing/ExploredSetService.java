@@ -1,6 +1,5 @@
 package net.cadistenmc.cadistchunkprocessing;
 
-import io.papermc.paper.math.Position;
 import net.cadistenmc.cadistchunkprocessing.engine.ExploredCodec;
 import net.cadistenmc.cadistchunkprocessing.engine.SightMarch;
 import org.bukkit.Bukkit;
@@ -66,6 +65,10 @@ public final class ExploredSetService implements Listener {
     private static final int PER_CHUNK_BLOCK_CAP = 256;
     /** Hard cap on per-block reveal updates sent to one player per scan (overflow falls back to chunk re-send). */
     private static final int MAX_BLOCK_UPDATES_PER_SCAN = 8192;
+    /** Hard cap on cells one body flood may visit, so a large live radius in a dense cave
+     *  system (a mineshaft of connected air) can't blow up the main-thread scan. The
+     *  nearest cells are visited first (BFS), so the rest just reveal as the player moves. */
+    private static final int MAX_BODY_FLOOD_CELLS = 24000;
 
     private final JavaPlugin plugin;
     private final Config config;
@@ -453,21 +456,23 @@ public final class ExploredSetService implements Listener {
             return 0;
         }
         int baseX = (int) (ck >> 32) << 4, baseZ = (int) ck << 4;
-        Map<Position, org.bukkit.block.data.BlockData> changes = new HashMap<>();
+        int sent = 0;
         for (int wi = 0; wi < bitsLen; wi++) {
             long bitsNew = add[wi] & ~(old == null ? 0L : old[wi]);
             while (bitsNew != 0L) {
                 int idx = (wi << 6) | Long.numberOfTrailingZeros(bitsNew);
                 bitsNew &= bitsNew - 1;
                 int lx = idx & 15, lz = (idx >> 4) & 15, wy = (idx >> 8) + minY;
-                changes.put(Position.block(baseX + lx, wy, baseZ + lz), snap.getBlockData(lx, wy, lz));
+                // Per-block change: a multi-block-change packet is per-16^3-section, so a
+                // column-spanning batch silently drops cross-section cells on some builds.
+                // One block-change per cell is reliable on every server and still avoids
+                // the full-chunk re-mesh (the FPS fix). The PER_CHUNK_BLOCK_CAP gate keeps
+                // the count small; a huge first reveal falls back to one chunk re-send.
+                p.sendBlockChange(new Location(w, baseX + lx, wy, baseZ + lz), snap.getBlockData(lx, wy, lz));
+                sent++;
             }
         }
-        if (changes.isEmpty()) return 0;
-        // One multi-block-change (Paper splits it per 16^3 section) instead of N single
-        // block-change packets — far fewer packets when a frontier reveals many cells.
-        p.sendMultiBlockChange(changes);
-        return changes.size();
+        return sent;
     }
 
     /** Mark one absolute cell explored in the per-scan bitset. */
@@ -512,7 +517,7 @@ public final class ExploredSetService implements Listener {
                 seen[rel] = true; queue[tail++] = rel;
             }
         }
-        while (head < tail) {
+        while (head < tail && head < MAX_BODY_FLOOD_CELLS) {
             int rel = queue[head++];
             int rx = rel % span, t = rel / span, rz = t % span, ry = t / span;
             int wx = x0 + rx, wy = lo + ry, wz = z0 + rz;
