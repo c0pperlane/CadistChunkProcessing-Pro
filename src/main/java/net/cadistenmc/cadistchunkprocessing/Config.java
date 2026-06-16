@@ -74,7 +74,7 @@ public final class Config {
         this.fogRaysPerScan = Math.max(8, c.getInt("fog-rays-per-scan", 96));
         this.fogMaxChunks = Math.max(256, c.getInt("fog-max-chunks", 50000));
         this.fogBodyRadius = Math.max(2, Math.min(64, c.getInt("fog-body-radius", 8)));
-        this.fogSightRays = c.getBoolean("fog-sight-rays", true);
+        this.fogSightRays = c.getBoolean("fog-sight-rays", false);
         this.fogBlockUpdates = c.getBoolean("fog-block-updates", true);
         this.fogPersist = c.getBoolean("fog-persist", true);
         this.fogExpireDays = Math.max(0, c.getInt("fog-expire-days", 0));
@@ -191,6 +191,7 @@ public final class Config {
     public void setSurfaceEntrances(boolean v) { set("surface-entrances", v); }
     public void setFogOfWar(boolean v) { set("fog-of-war", v); }
     public void setFogRayDistance(int v) { set("fog-ray-distance", v); }
+    public void setFogSightRays(boolean v) { set("fog-sight-rays", v); }
     public void setFogBodyRadius(int v) { set("fog-body-radius", v); }
     public void setChunkCache(boolean v) { set("chunk-cache", v); }
     public void setVerticalCulling(boolean v) { set("vertical-culling", v); }

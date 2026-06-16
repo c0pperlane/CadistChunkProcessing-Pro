@@ -1,5 +1,6 @@
 package net.cadistenmc.cadistchunkprocessing;
 
+import io.papermc.paper.math.Position;
 import net.cadistenmc.cadistchunkprocessing.engine.ExploredCodec;
 import net.cadistenmc.cadistchunkprocessing.engine.SightMarch;
 import org.bukkit.Bukkit;
@@ -88,6 +89,12 @@ public final class ExploredSetService implements Listener {
     private final ConcurrentHashMap<UUID, Fog> byPlayer = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, int[]> lastScan = new ConcurrentHashMap<>(); // {x,y,z,yawDeg,pitchDeg}
     private final ConcurrentHashMap<UUID, int[]> lastBody = new ConcurrentHashMap<>(); // {x,y,z} of last body flood
+    // Per-tick chunk-snapshot cache, keyed world -> chunk. Built and consumed only on
+    // the main thread inside one tick(), then cleared — so all players scanned this tick
+    // share one snapshot per chunk (a clustered server no longer copies the same chunk
+    // N times), and there is no staleness: every player sees the same in-tick geometry.
+    // A null value caches a "chunk not loaded" miss so it isn't re-tested.
+    private final Map<UUID, Map<Long, ChunkSnapshot>> tickSnaps = new HashMap<>();
     private BukkitTask task;
     private final Random rng = new Random();
 
@@ -107,12 +114,14 @@ public final class ExploredSetService implements Listener {
         byPlayer.clear();
         lastScan.clear();
         lastBody.clear();
+        tickSnaps.clear();
     }
 
     public void clear() {
         byPlayer.clear();
         lastScan.clear();
         lastBody.clear();
+        tickSnaps.clear();
     }
 
     /** Force the next scan to run (e.g. the player mined into new space). */
@@ -147,6 +156,7 @@ public final class ExploredSetService implements Listener {
     // ---- main-thread scan ----
 
     private void tick() {
+        tickSnaps.clear();                              // fresh snapshots each tick (no cross-tick staleness)
         if (!config.fogActive()) {
             if (!byPlayer.isEmpty()) { byPlayer.clear(); lastScan.clear(); lastBody.clear(); }
             return;
@@ -321,16 +331,20 @@ public final class ExploredSetService implements Listener {
             byPlayer.put(id, fog);
         }
 
-        // Snapshot the loaded bubble around the player (main thread).
-        int r = config.params().realRadius();
+        // Snapshot only the chunks the ACTIVE sources can touch (main thread, via the
+        // per-tick shared cache). The body flood reaches fog-body-radius blocks; sight
+        // rays (when on) reach fog-ray-distance. With sight rays off — the default — the
+        // window collapses to the body bubble (~1-2 chunks) instead of the whole real
+        // radius, so the scan copies a fraction of the chunks it used to.
         int pcx = px >> 4, pcz = pz >> 4;
+        int snapR = (config.fogBodyRadius() >> 4) + 1;
+        if (sightRays) snapR = Math.max(snapR, Math.min((config.fogRayDistance() >> 4) + 1, 6));
         Map<Long, ChunkSnapshot> snaps = new HashMap<>();
-        for (int dx = -r; dx <= r; dx++) {
-            for (int dz = -r; dz <= r; dz++) {
+        for (int dx = -snapR; dx <= snapR; dx++) {
+            for (int dz = -snapR; dz <= snapR; dz++) {
                 int cx = pcx + dx, cz = pcz + dz;
-                if (w.isChunkLoaded(cx, cz)) {
-                    snaps.put(key(cx, cz), w.getChunkAt(cx, cz).getChunkSnapshot(false, false, false));
-                }
+                ChunkSnapshot s = snap(w, cx, cz);
+                if (s != null) snaps.put(key(cx, cz), s);
             }
         }
 
@@ -342,9 +356,20 @@ public final class ExploredSetService implements Listener {
         Map<Long, long[]> scan = new HashMap<>();
         final int fMinY = minY, fYSize = ySize;
         final Map<Long, ChunkSnapshot> fSnaps = snaps;
+        final Fog fFog = fog;
         SightMarch.Visitor marker = (x, y, z) -> {
-            ChunkSnapshot s = fSnaps.get(key(x >> 4, z >> 4));
+            long ck = key(x >> 4, z >> 4);
+            ChunkSnapshot s = fSnaps.get(ck);
             if (s == null || y >= s.getHighestBlockYAt(x & 15, z & 15)) return;
+            int ly = y - fMinY;
+            if (ly < 0 || ly >= fYSize) return;
+            // Skip cells already explored: they're already real on the client, so re-
+            // marking them only to have the merge discard them is wasted work (and a
+            // wasted per-chunk array). Cost now tracks the exploration frontier, not the
+            // bubble volume re-covered each move.
+            int idx = (ly << 8) | ((z & 15) << 4) | (x & 15);
+            long[] cur = fFog.bits.get(ck);
+            if (cur != null && (cur[idx >> 6] & (1L << (idx & 63))) != 0) return;
             mark(scan, bitsLen, x, y, z, fMinY, fYSize);
         };
 
@@ -420,19 +445,21 @@ public final class ExploredSetService implements Listener {
             return 0;
         }
         int baseX = (int) (ck >> 32) << 4, baseZ = (int) ck << 4;
-        int sent = 0;
+        Map<Position, org.bukkit.block.data.BlockData> changes = new HashMap<>();
         for (int wi = 0; wi < bitsLen; wi++) {
             long bitsNew = add[wi] & ~(old == null ? 0L : old[wi]);
             while (bitsNew != 0L) {
                 int idx = (wi << 6) | Long.numberOfTrailingZeros(bitsNew);
                 bitsNew &= bitsNew - 1;
                 int lx = idx & 15, lz = (idx >> 4) & 15, wy = (idx >> 8) + minY;
-                org.bukkit.block.data.BlockData data = snap.getBlockData(lx, wy, lz);
-                p.sendBlockChange(new Location(w, baseX + lx, wy, baseZ + lz), data);
-                sent++;
+                changes.put(Position.block(baseX + lx, wy, baseZ + lz), snap.getBlockData(lx, wy, lz));
             }
         }
-        return sent;
+        if (changes.isEmpty()) return 0;
+        // One multi-block-change (Paper splits it per 16^3 section) instead of N single
+        // block-change packets — far fewer packets when a frontier reveals many cells.
+        p.sendMultiBlockChange(changes);
+        return changes.size();
     }
 
     /** Mark one absolute cell explored in the per-scan bitset. */
@@ -551,6 +578,21 @@ public final class ExploredSetService implements Listener {
         if (s == null) return false;
         Material m = s.getBlockType(wx & 15, wy, wz & 15);
         return !m.isOccluding();
+    }
+
+    /**
+     * Fetch a chunk snapshot from the per-tick shared cache, taking (and caching) it
+     * once if absent. Returns null for an unloaded chunk (and caches that miss so it is
+     * not re-tested this tick). Main-thread only.
+     */
+    private ChunkSnapshot snap(World w, int cx, int cz) {
+        Map<Long, ChunkSnapshot> m = tickSnaps.computeIfAbsent(w.getUID(), k -> new HashMap<>());
+        long ck = key(cx, cz);
+        ChunkSnapshot s = m.get(ck);
+        if (s != null || m.containsKey(ck)) return s;   // cached hit or cached miss
+        s = w.isChunkLoaded(cx, cz) ? w.getChunkAt(cx, cz).getChunkSnapshot(false, false, false) : null;
+        m.put(ck, s);
+        return s;
     }
 
     /** A cell the player's body can occupy: air or a fluid. Unloaded chunks read as solid. */

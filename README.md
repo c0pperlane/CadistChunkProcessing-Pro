@@ -108,22 +108,27 @@ the client updates a handful of blocks instead of re-meshing the whole 24-sectio
 column. This is what keeps client **FPS** up while exploring; a huge first reveal of
 a whole cavern still uses one chunk re-send (cheaper than thousands of updates).
 
-`fog-sight-rays` (on by default) controls whether **looking** reveals (eye raycasts
-— the strongest anti-freecam). Set it `false` to reveal only what you **walk near**
-(the live radius below): purely movement-driven, no look-vector cost, but a viewer
-can then see the bubble around a player even where they haven't faced. The sight
-scan is bounded/throttled with a global per-tick ray governor; `fog-ray-distance`
-(GUI slider) sets how far sight reveals and scales roughly **linearly** — the cheap
-knob for reach. Fine mouse jitter (&lt; 5°) and looking at open sky never trigger work.
+**Look-reveal** (`fog-sight-rays`, GUI toggle "Look-reveal") is **off by default** —
+the aggressive, accurate setting. With it off you reveal **only what you walk into**
+(the live radius below) plus visible cave mouths, so a cave you merely glanced down a
+tunnel — or one you've never been in — stays solid rock. Turn it **on** for maximum
+anti-freecam (see-what-you-look-at via eye raycasts), at the cost of the per-scan ray
+work; a viewer can then also see along corridors you face. The sight scan is
+bounded/throttled with a global per-tick ray governor; `fog-ray-distance` (GUI slider
+"Look-reveal distance") sets how far it reaches and scales roughly **linearly**. Fine
+mouse jitter (&lt; 5°) and looking at open sky never trigger work.
 
 **`fog-body-radius`** (GUI slider "Fog live radius", default 8, 2–64) sets the
 always-real bubble around you — the live radius that stays visible even where you
-haven't looked, for digging safety. It floods all connected air inside the bubble,
-so its cost grows with the bubble's **volume (~radius³)**: every +1 is noticeably
-more work and doubling it is ~8×. Keep it small (8–16) and use `fog-ray-distance`
-for reach. The flood only re-runs after you move **~radius/4 blocks** (not every
-block, and never when only looking), so a bigger radius re-floods proportionally
-less often and re-visiting already-explored ground costs nothing.
+haven't looked, for digging safety. It floods the connected air inside the bubble,
+so its cost grows with the bubble's **volume (~radius³)**. Three things keep a big
+radius affordable: the flood only re-runs after you move **~radius/4 blocks** (never
+when only looking); cells already in your explored set are **skipped entirely** (re-
+visiting known ground costs nothing); and chunk geometry is read from a **per-tick
+snapshot cache shared across all players** (a clustered server copies each chunk once,
+not once per player). With look-reveal off, the scan also only snapshots the bubble
+(a chunk or two) instead of the whole real radius. Newly-revealed cells are pushed as
+one **multi-block-change** per chunk rather than one packet per block.
 
 Exploration **persists to disk** per player per world
 (`plugins/CadistChunkProcessing-Pro/explored/<world>/<player>.ccpf`,
@@ -316,6 +321,13 @@ double-owned — Pro uses the installed plugin's shared API.
   (bottom-right).
 - **Configurable live radius** (`fog-body-radius`, GUI slider) — the always-real
   bubble you've wanted, 2–64 blocks.
+- **Aggressive by default (v10.3)** — *look-reveal* (eye raycasts) is now **off out
+  of the box**, so caves you only glanced at — or never entered — stay hidden. Flip
+  it on via the GUI "Look-reveal" toggle for maximum see-what-you-look-at vision.
+- **Cheaper big radius (v10.3)** — a per-tick chunk-snapshot cache shared across all
+  players, already-explored cells skipped during the scan, the snapshot window
+  collapsed to just the bubble when look-reveal is off, and reveals batched into one
+  multi-block-change per chunk. Raising the live radius costs far less than before.
 
 See the per-feature sections above for details.
 

@@ -38,7 +38,7 @@ public final class Gui implements Listener {
     private static final TextColor OVERLAY = TextColor.color(0x6C7086);
 
     // ---- main page (modern kit) ----
-    private static final int FOG = 10, FOG_DIST = 11, FOG_BODY = 12;
+    private static final int FOG = 10, FOG_DIST = 11, FOG_BODY = 12, FOG_SIGHT = 13;
     private static final int ANTI_BASE = 14, ENTRANCES = 16;
     private static final int ORE = 19, HIDE_ALL = 20, BLOCK_ENT = 21, ORE_RADIUS = 22;
     private static final int CAVE = 24, VCULL = 25, VMARGIN = 26;
@@ -96,10 +96,18 @@ public final class Gui implements Listener {
                         line("the live bubble around you stay real, so nothing", SUB),
                         line("visible is false-culled. Subsumes the Outdated", SUB),
                         line("hiders. Click to toggle.", SUB))));
-        inv.setItem(FOG_DIST, slider(Material.SPYGLASS, "Fog ray distance", c.fogRayDistance(), "blocks",
-                "How far sight rays reveal. Higher = see/reveal farther, more cost. Left +8 / Right -8."));
         inv.setItem(FOG_BODY, slider(Material.HEART_OF_THE_SEA, "Fog live radius", c.fogBodyRadius(), "blocks",
                 "The bubble around you that's ALWAYS real, even unseen (digging safety). 2-64. Left +2 / Right -2."));
+        inv.setItem(FOG_SIGHT, item(c.fogSightRays() ? Material.ENDER_EYE : Material.ENDER_PEARL,
+                Component.text("Look-reveal (sight rays)", c.fogSightRays() ? GREEN : RED),
+                List.of(line(c.fogSightRays() ? "Enabled" : "Disabled", c.fogSightRays() ? GREEN : RED),
+                        line("OFF (default): reveal only caves you WALK into;", SUB),
+                        line("far caves you merely glanced at stay hidden -", SUB),
+                        line("aggressive and cheapest. ON: also reveal what", SUB),
+                        line("you LOOK down (max anti-freecam, costs rays;", SUB),
+                        line("uses the ray distance below). Click to toggle.", SUB))));
+        inv.setItem(FOG_DIST, slider(Material.SPYGLASS, "Look-reveal distance", c.fogRayDistance(), "blocks",
+                "How far look-reveal rays reach (only when look-reveal is ON). Higher = farther, more cost. Left +8 / Right -8."));
 
         inv.setItem(ANTI_BASE, item(c.antiBaseFinder() ? Material.SCULK_SENSOR : Material.SCULK_SHRIEKER,
                 Component.text("Anti-Base Finder", c.antiBaseFinder() ? GREEN : RED),
@@ -239,7 +247,8 @@ public final class Gui implements Listener {
         lore.add(line("Cave blocks solidified: " + m.blocksSolidified(), SUB));
         Config c = plugin.cfg();
         lore.add(line("Fog of war: " + (c.fogOfWar()
-                ? "on (rays " + c.fogRayDistance() + "b, live " + c.fogBodyRadius() + "b)" : "off")
+                ? "on (live " + c.fogBodyRadius() + "b, look-reveal "
+                  + (c.fogSightRays() ? "on " + c.fogRayDistance() + "b" : "off") + ")" : "off")
                 + "   Anti-base: " + (c.antiBaseFinder() ? "on" : "off"), SUB));
         return item(Material.BOOK, Component.text("Live statistics", YELLOW), lore);
     }
@@ -274,6 +283,7 @@ public final class Gui implements Listener {
 
         switch (e.getRawSlot()) {
             case FOG -> c.setFogOfWar(!c.fogOfWar());
+            case FOG_SIGHT -> c.setFogSightRays(!c.fogSightRays());
             case FOG_DIST -> c.setFogRayDistance(clamp(c.fogRayDistance() + (left ? 8 : -8), 8, 256));
             case FOG_BODY -> c.setFogBodyRadius(clamp(c.fogBodyRadius() + (left ? 2 : -2), 2, 64));
             case ANTI_BASE -> c.setAntiBaseFinder(!c.antiBaseFinder());

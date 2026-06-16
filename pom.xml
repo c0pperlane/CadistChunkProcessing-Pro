@@ -7,7 +7,7 @@
 
     <groupId>net.cadistenmc</groupId>
     <artifactId>CadistChunkProcessing-Pro</artifactId>
-    <version>10.2.3-beta</version>
+    <version>10.3.0-beta</version>
     <packaging>jar</packaging>
 
     <name>CadistChunkProcessingPro</name>
