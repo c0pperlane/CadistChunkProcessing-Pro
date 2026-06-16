@@ -31,6 +31,8 @@ public final class Config {
     private volatile int fogRaysPerScan = 96;
     private volatile int fogMaxChunks = 50000;
     private volatile int fogBodyRadius = 8;
+    private volatile boolean fogSightRays = true;
+    private volatile boolean fogBlockUpdates = true;
     private volatile boolean fogPersist = true;
     private volatile int fogExpireDays = 0;
     private volatile boolean chunkCache = true;
@@ -72,6 +74,8 @@ public final class Config {
         this.fogRaysPerScan = Math.max(8, c.getInt("fog-rays-per-scan", 96));
         this.fogMaxChunks = Math.max(256, c.getInt("fog-max-chunks", 50000));
         this.fogBodyRadius = Math.max(2, Math.min(64, c.getInt("fog-body-radius", 8)));
+        this.fogSightRays = c.getBoolean("fog-sight-rays", true);
+        this.fogBlockUpdates = c.getBoolean("fog-block-updates", true);
         this.fogPersist = c.getBoolean("fog-persist", true);
         this.fogExpireDays = Math.max(0, c.getInt("fog-expire-days", 0));
         this.chunkCache = c.getBoolean("chunk-cache", true);
@@ -143,6 +147,10 @@ public final class Config {
     public int fogMaxChunks() { return fogMaxChunks; }
     /** The "live radius": air within this many blocks of you is always real (the fog body bubble). */
     public int fogBodyRadius() { return fogBodyRadius; }
+    /** Reveal what you LOOK at via eye raycasts (max anti-freecam). Off = reveal only what you walk near. */
+    public boolean fogSightRays() { return fogSightRays; }
+    /** Reveal newly-seen cells with per-block updates (cheap) instead of full chunk re-sends. */
+    public boolean fogBlockUpdates() { return fogBlockUpdates; }
     public boolean fogPersist() { return fogPersist; }
     public int fogExpireDays() { return fogExpireDays; }
     /** Any reachability feature active -> the scanner needs to run. */
