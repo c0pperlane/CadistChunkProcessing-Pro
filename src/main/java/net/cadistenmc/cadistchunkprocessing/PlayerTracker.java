@@ -9,6 +9,7 @@ import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 
 import java.util.Iterator;
 import java.util.Set;
@@ -100,6 +101,27 @@ public final class PlayerTracker implements Listener {
                 if (!crossed) enqueueBubble(id, nx, nz);   // recompute already re-sent the bubble if we crossed
             }
         }
+    }
+
+    @EventHandler
+    public void onTeleport(PlayerTeleportEvent e) {
+        if (e.getTo() == null || e.getFrom().getWorld() == null || e.getTo().getWorld() == null) return;
+        // Cross-world teleports are reseeded by onWorldChange (fires alongside). For a
+        // same-world teleport, no move event fires, so refresh tracking here — and do
+        // NOT enqueue re-sends: the server resends the destination area fresh and the
+        // interceptor processes each chunk once with the correct tier/fog. We only drop
+        // the stale pending re-sends from the place we left (they're moot now).
+        if (!e.getFrom().getWorld().getUID().equals(e.getTo().getWorld().getUID())) return;
+        Player p = e.getPlayer();
+        UUID id = p.getUniqueId();
+        Location to = e.getTo();
+        int nx = to.getBlockX() >> 4, nz = to.getBlockZ() >> 4;
+        chunkOf.put(id, key(nx, nz));
+        posOf.put(id, new int[]{to.getBlockX(), to.getBlockY(), to.getBlockZ()});
+        lastY.put(id, to.getBlockY());
+        scheduler.remove(id);                          // old area's queued re-sends are moot
+        Set<Long> set = revealed.get(id);
+        if (set != null) { set.clear(); seedBubble(id, nx, nz); }   // reseed tracking, no enqueue
     }
 
     @EventHandler

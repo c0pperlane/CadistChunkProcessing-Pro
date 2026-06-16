@@ -254,7 +254,11 @@ public final class ExploredSetService implements Listener {
                 for (int i = 0; i < fog.bitsLen; i++) merged[i] |= add[i];
                 fog.bits.put(ck, merged);
             }
-            scheduler.enqueue(id, (int) (ck >> 32), (int) ck);
+            // Only re-fog chunks the player can actually SEE right now (loaded). The
+            // saved explored set can be thousands of chunks; the unloaded ones aren't
+            // rendered, so re-sending them does nothing but clog the drain for 20-30s.
+            int cx = (int) (ck >> 32), cz = (int) ck;
+            if (w.isChunkLoaded(cx, cz)) scheduler.enqueue(id, cx, cz);
             any = true;
         }
         if (any) { lastScan.remove(id); lastBody.remove(id); }   // force a fresh scan so it re-sends/extends

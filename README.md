@@ -330,6 +330,13 @@ double-owned — Pro uses the installed plugin's shared API.
   players, already-explored cells skipped during the scan, the snapshot window
   collapsed to just the bubble when look-reveal is off, and reveals batched into one
   multi-block-change per chunk. Raising the live radius costs far less than before.
+- **No teleport/join re-send storm (v10.3)** — joining or teleporting no longer
+  re-sends your entire saved exploration; it only re-fogs chunks that are actually
+  loaded, the re-send queue is de-duplicated, and same-world teleports just refresh
+  tracking instead of re-blasting the area. The post-teleport chunk churn (and its
+  FPS dip) is gone — fresh sends carry the correct state once, and that's it.
+- **Configurable re-cull cadence (v10.3)** — `fog-move-stride` (GUI "Fog update
+  distance") sets how far you move before the fog re-culls; `0` = auto (radius/4).
 
 See the per-feature sections above for details.
 
