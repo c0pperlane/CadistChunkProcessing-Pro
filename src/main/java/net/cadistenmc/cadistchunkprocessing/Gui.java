@@ -113,8 +113,8 @@ public final class Gui implements Listener {
                 Component.text("Fog update distance: " + (stride == 0 ? "Auto" : stride + " blocks"), TEXT),
                 List.of(line("How far you MOVE before the fog re-culls and reveals", SUB),
                         line("new area as you walk. Lower = snappier updates, more", SUB),
-                        line("CPU; higher = smoother CPU, more delay. Auto scales", SUB),
-                        line("with the live radius (radius / 4).", SUB),
+                        line("CPU; higher = smoother CPU, more delay. Auto = 1 block", SUB),
+                        line("(snappy); standing still still reveals on a heartbeat.", SUB),
                         line("Left-click +1  /  Right-click -1  (0 = Auto)", SUB))));
 
         inv.setItem(ANTI_BASE, item(c.antiBaseFinder() ? Material.SCULK_SENSOR : Material.SCULK_SHRIEKER,

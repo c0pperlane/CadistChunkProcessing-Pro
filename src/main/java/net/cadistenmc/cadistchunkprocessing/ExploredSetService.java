@@ -69,6 +69,9 @@ public final class ExploredSetService implements Listener {
      *  system (a mineshaft of connected air) can't blow up the main-thread scan. The
      *  nearest cells are visited first (BFS), so the rest just reveal as the player moves. */
     private static final int MAX_BODY_FLOOD_CELLS = 24000;
+    /** Re-flood a standing player at least this often (in scans) so caves they now face
+     *  reveal without having to walk. PERIOD=4 ticks, so 4 scans ≈ 0.8s. */
+    private static final int HEARTBEAT_SCANS = 4;
 
     private final JavaPlugin plugin;
     private final Config config;
@@ -100,6 +103,8 @@ public final class ExploredSetService implements Listener {
     private final Map<UUID, Map<Long, ChunkSnapshot>> tickSnaps = new HashMap<>();
     private BukkitTask task;
     private final Random rng = new Random();
+    /** Scan counter (one per tick() call) — drives the stationary heartbeat re-flood. */
+    private int scanNo;
 
     public ExploredSetService(JavaPlugin plugin, Config config, RefreshScheduler scheduler, ExploredStore store) {
         this.plugin = plugin;
@@ -159,6 +164,7 @@ public final class ExploredSetService implements Listener {
     // ---- main-thread scan ----
 
     private void tick() {
+        scanNo++;
         tickSnaps.clear();                              // fresh snapshots each tick (no cross-tick staleness)
         if (!config.fogActive()) {
             if (!byPlayer.isEmpty()) { byPlayer.clear(); lastScan.clear(); lastBody.clear(); }
@@ -264,7 +270,34 @@ public final class ExploredSetService implements Listener {
             if (w.isChunkLoaded(cx, cz)) scheduler.enqueue(id, cx, cz);
             any = true;
         }
-        if (any) { lastScan.remove(id); lastBody.remove(id); }   // force a fresh scan so it re-sends/extends
+        if (any) {
+            lastScan.remove(id); lastBody.remove(id);   // force a fresh scan so it re-sends/extends
+            // The view is often still loading right after join, so chunks streamed in
+            // AFTER this merge (or the spawn chunk sent fogged during the async load)
+            // would stay walled. Re-apply the fog mask to explored loaded chunks once the
+            // area has settled — this is what reveals a previously-explored base on rejoin.
+            Bukkit.getScheduler().runTaskLater(plugin, () -> resyncLoadedExplored(id), 40L);
+            Bukkit.getScheduler().runTaskLater(plugin, () -> resyncLoadedExplored(id), 120L);
+        }
+    }
+
+    /** Re-send (re-apply the fog mask to) every explored chunk currently loaded near the
+     *  player, so their explored areas reveal after a join/teleport even if the chunks
+     *  were first sent before the explored set finished loading. Main thread. */
+    private void resyncLoadedExplored(UUID id) {
+        Player p = Bukkit.getPlayer(id);
+        if (p == null) return;
+        Fog fog = byPlayer.get(id);
+        if (fog == null || !fog.world.equals(p.getWorld().getUID())) return;
+        World w = p.getWorld();
+        int pcx = p.getLocation().getBlockX() >> 4, pcz = p.getLocation().getBlockZ() >> 4;
+        int vr = Bukkit.getViewDistance() + 1;
+        for (Long ck : fog.bits.keySet()) {
+            int cx = (int) (ck >> 32), cz = (int) ck;
+            if (Math.abs(cx - pcx) <= vr && Math.abs(cz - pcz) <= vr && w.isChunkLoaded(cx, cz)) {
+                scheduler.enqueue(id, cx, cz);
+            }
+        }
     }
 
     private void saveAsync(UUID id) {
@@ -309,27 +342,27 @@ public final class ExploredSetService implements Listener {
         boolean sightRays = config.fogSightRays();
 
         int[] prev = lastScan.get(id);
-        // Only re-run the (cubic) body flood once the player has moved a meaningful
-        // fraction of the bubble radius — overlapping spheres + the cumulative explored
-        // set mean re-flooding every block just re-covers known ground. In already-
-        // explored territory the player thus coasts on the set with no scan work; the
-        // flood only fires near the exploration frontier. Stride scales with the radius
-        // so a big live radius re-floods far less often (the CPU-spike fix).
+        // Re-flood when the player has moved at least `stride` blocks since the last
+        // flood. Default (fog-move-stride = 0) is 1 block — snappy reveal as you walk;
+        // a configured value trades responsiveness for fewer floods. lastBody[3] holds
+        // the scan number of that last flood for the stationary heartbeat below.
         int[] lb = lastBody.get(id);
-        // Re-cull cadence by distance moved. 0 = auto (scales with the radius so a big
-        // bubble re-floods proportionally less often); a configured value pins it (lower
-        // = snappier culls as you walk, more CPU; higher = smoother CPU, more delay).
         int cfgStride = config.fogMoveStride();
-        int stride = cfgStride > 0 ? cfgStride : Math.max(2, config.fogBodyRadius() / 4);
+        int stride = cfgStride > 0 ? cfgStride : 1;
         boolean moved = lb == null
                 || (lb[0] - px) * (lb[0] - px) + (lb[1] - py) * (lb[1] - py)
                    + (lb[2] - pz) * (lb[2] - pz) >= stride * stride;
+        // Heartbeat: even standing still, re-flood every HEARTBEAT_SCANS so a cave the
+        // player now faces reveals without having to walk back and forth. The flood
+        // skips already-explored cells, so a heartbeat over known ground is cheap.
+        boolean heartbeat = lb != null && lb.length > 3 && (scanNo - lb[3]) >= HEARTBEAT_SCANS;
         // A look change only matters when sight rays are on, past a small threshold so
         // fine mouse jitter doesn't trigger a re-scan.
         boolean looked = sightRays && prev != null
                 && (yawDiff(prev[3], yawDeg) >= LOOK_THRESHOLD_DEG
                     || Math.abs(prev[4] - pitchDeg) >= LOOK_THRESHOLD_DEG);
-        if (prev != null && byPlayer.containsKey(id) && !moved && !looked) {
+        boolean doFlood = moved || heartbeat;
+        if (prev != null && byPlayer.containsKey(id) && !doFlood && !looked) {
             return 0;   // not far enough into new territory, and not turned enough
         }
 
@@ -385,11 +418,11 @@ public final class ExploredSetService implements Listener {
         };
 
         // --- Body source: connected air within the live radius (always explored). ---
-        // The bubble depends only on POSITION, not look direction, and the explored set
-        // is cumulative — so when the player only turned we skip the flood entirely.
-        if (moved) {
-            bodyFlood(snaps, px, p.getLocation().getBlockY(), pz, minY, maxY, marker);
-            lastBody.put(id, new int[]{px, py, pz});
+        // Runs when the player moved a stride OR on the stationary heartbeat.
+        int floodVisited = 0;
+        if (doFlood) {
+            floodVisited = bodyFlood(snaps, px, p.getLocation().getBlockY(), pz, minY, maxY, marker);
+            lastBody.put(id, new int[]{px, py, pz, scanNo});
         }
 
         // --- Sight source: rays from the eye (only when sight rays are enabled). ---
@@ -442,10 +475,10 @@ public final class ExploredSetService implements Listener {
                 dbgEnq++;
             }
         }
-        if (config.debug() && (moved || looked)) {
-            plugin.getLogger().info("[CCP fog] " + p.getName() + " moved=" + moved + " look=" + looked
-                    + " bubbleR=" + config.fogBodyRadius() + " snaps=" + snaps.size()
-                    + " scanChunks=" + scan.size() + " newCells=" + dbgScanBits
+        if (config.debug() && (doFlood || looked)) {
+            plugin.getLogger().info("[CCP fog] " + p.getName() + " moved=" + moved + " heartbeat=" + heartbeat
+                    + " look=" + looked + " bubbleR=" + config.fogBodyRadius() + " snaps=" + snaps.size()
+                    + " floodVisited=" + floodVisited + " scanChunks=" + scan.size() + " newCells=" + dbgScanBits
                     + " revealed=" + dbgRevealed + " blockSent=" + dbgSent + " chunkResend=" + dbgEnq);
         }
 
@@ -508,14 +541,14 @@ public final class ExploredSetService implements Listener {
      * radius" ({@code fog-body-radius}); every cell is marked explored, so air within
      * that radius is always real. A 3-D sphere leash, bounded by its own bounding box.
      */
-    private void bodyFlood(Map<Long, ChunkSnapshot> snaps, int px, int feetY, int pz,
+    private int bodyFlood(Map<Long, ChunkSnapshot> snaps, int px, int feetY, int pz,
                            int minY, int maxY, SightMarch.Visitor marker) {
         int leash = config.fogBodyRadius();
         int lo = Math.max(minY, feetY - leash), hi = Math.min(maxY - 1, feetY + leash + 1);
         int x0 = px - leash, z0 = pz - leash;
         int span = leash * 2 + 1;
         int h = hi - lo + 1;
-        if (h <= 0) return;
+        if (h <= 0) return 0;
         int total = span * span * h;
         if (bodySeen.length < total) { bodySeen = new boolean[total]; bodyQueue = new int[total]; }
         boolean[] seen = bodySeen;
@@ -540,7 +573,9 @@ public final class ExploredSetService implements Listener {
             if (ry > 0)        tail = relax(snaps, seen, queue, rel - span * span, wx, wy - 1, wz, px, feetY, pz, leashSq, tail);
             if (ry < h - 1)    tail = relax(snaps, seen, queue, rel + span * span, wx, wy + 1, wz, px, feetY, pz, leashSq, tail);
         }
+        int visited = tail;
         for (int i = 0; i < tail; i++) seen[queue[i]] = false;   // reset scratch for the next player/scan
+        return visited;
     }
 
     private int relax(Map<Long, ChunkSnapshot> snaps, boolean[] seen, int[] queue, int nRel,
@@ -614,7 +649,9 @@ public final class ExploredSetService implements Listener {
         long ck = key(cx, cz);
         ChunkSnapshot s = m.get(ck);
         if (s != null || m.containsKey(ck)) return s;   // cached hit or cached miss
-        s = w.isChunkLoaded(cx, cz) ? w.getChunkAt(cx, cz).getChunkSnapshot(false, false, false) : null;
+        // includeMaxBlockY=true so the surface gate's getHighestBlockYAt is reliable
+        // (without it some builds return 0 / throw, which would skip every marked cell).
+        s = w.isChunkLoaded(cx, cz) ? w.getChunkAt(cx, cz).getChunkSnapshot(true, false, false) : null;
         m.put(ck, s);
         return s;
     }
