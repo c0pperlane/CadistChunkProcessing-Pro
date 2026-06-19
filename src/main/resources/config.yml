@@ -175,7 +175,7 @@ fog-block-updates: true
 # small (8-16). To see FARTHER, raise fog-ray-distance instead (that scales linearly,
 # far cheaper). The flood only re-runs after you move ~radius/4 blocks (not every block
 # and not when looking around), so already-explored ground costs nothing to revisit.
-fog-body-radius: 8
+fog-body-radius: 16
 # How far (blocks) you must MOVE before the fog re-culls and reveals new area as you
 # walk. Lower = snappier updates (less visible delay) at more CPU; higher = smoother
 # CPU at more delay. 0 = AUTO: scales with the live radius (radius / 4), so a big

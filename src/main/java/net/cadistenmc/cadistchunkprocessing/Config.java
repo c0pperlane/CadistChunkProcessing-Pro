@@ -74,7 +74,7 @@ public final class Config {
         this.fogRayDistance = Math.max(8, c.getInt("fog-ray-distance", 64));
         this.fogRaysPerScan = Math.max(8, c.getInt("fog-rays-per-scan", 96));
         this.fogMaxChunks = Math.max(256, c.getInt("fog-max-chunks", 50000));
-        this.fogBodyRadius = Math.max(2, Math.min(64, c.getInt("fog-body-radius", 8)));
+        this.fogBodyRadius = Math.max(2, Math.min(64, c.getInt("fog-body-radius", 16)));
         this.fogMoveStride = Math.max(0, Math.min(64, c.getInt("fog-move-stride", 0)));
         this.fogSightRays = c.getBoolean("fog-sight-rays", false);
         this.fogBlockUpdates = c.getBoolean("fog-block-updates", true);

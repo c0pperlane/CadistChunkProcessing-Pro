@@ -410,6 +410,8 @@ public final class ExploredSetService implements Listener {
         // back to one full chunk re-send, which is cheaper than thousands of updates.
         boolean blockUpdates = config.fogBlockUpdates();
         int budget = MAX_BLOCK_UPDATES_PER_SCAN;
+        int dbgScanBits = 0, dbgRevealed = 0, dbgSent = 0, dbgEnq = 0;
+        if (config.debug()) for (long[] a : scan.values()) for (long ww : a) dbgScanBits += Long.bitCount(ww);
         for (Map.Entry<Long, long[]> e : scan.entrySet()) {
             long ck = e.getKey();
             long[] add = e.getValue();
@@ -421,6 +423,7 @@ public final class ExploredSetService implements Listener {
                 revealed += Long.bitCount(add[i] & ~(old == null ? 0L : old[i]));
             }
             if (revealed == 0) continue;                 // nothing new in this chunk
+            dbgRevealed += revealed;
 
             long[] merged;
             if (old == null) {
@@ -432,10 +435,18 @@ public final class ExploredSetService implements Listener {
             fog.bits.put(ck, merged);
 
             if (blockUpdates && revealed <= PER_CHUNK_BLOCK_CAP && revealed <= budget) {
-                budget -= sendRevealedBlocks(p, w, fSnaps, ck, add, old, bitsLen, minY);
+                int sent = sendRevealedBlocks(p, w, fSnaps, ck, add, old, bitsLen, minY);
+                budget -= sent; dbgSent += sent;
             } else {
                 scheduler.enqueue(id, (int) (ck >> 32), (int) ck);   // big/disabled -> one full re-send
+                dbgEnq++;
             }
+        }
+        if (config.debug() && (moved || looked)) {
+            plugin.getLogger().info("[CCP fog] " + p.getName() + " moved=" + moved + " look=" + looked
+                    + " bubbleR=" + config.fogBodyRadius() + " snaps=" + snaps.size()
+                    + " scanChunks=" + scan.size() + " newCells=" + dbgScanBits
+                    + " revealed=" + dbgRevealed + " blockSent=" + dbgSent + " chunkResend=" + dbgEnq);
         }
 
         evictIfOverCap(fog, pcx, pcz);
