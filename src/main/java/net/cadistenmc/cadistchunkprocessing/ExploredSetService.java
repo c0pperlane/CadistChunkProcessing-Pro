@@ -293,7 +293,7 @@ public final class ExploredSetService implements Listener {
         int pcx = p.getLocation().getBlockX() >> 4, pcz = p.getLocation().getBlockZ() >> 4;
         int vr = Bukkit.getViewDistance() + 1;
         for (Long ck : fog.bits.keySet()) {
-            int cx = (int) (ck >> 32), cz = (int) ck;
+            int cx = (int) (ck >> 32), cz = (int) (long) ck;
             if (Math.abs(cx - pcx) <= vr && Math.abs(cz - pcz) <= vr && w.isChunkLoaded(cx, cz)) {
                 scheduler.enqueue(id, cx, cz);
             }
